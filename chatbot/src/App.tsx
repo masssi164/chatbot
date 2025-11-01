@@ -1,212 +1,587 @@
-import { useCallback, useEffect, useState } from 'react'
-import './App.css'
-import ChatHistory from './components/ChatHistory'
-import ChatInput from './components/ChatInput'
-import SettingsPanel from './components/SettingsPanel'
-import McpServerPanel from './components/McpServerPanel'
-import { useChatStore } from './store/chatStore'
-import { useMcpServerStore } from './store/mcpServerStore'
-import { ensureMcpSession, disconnectMcpSession } from './services/mcpClientManager'
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Navigate,
+  Outlet,
+  Route,
+  Routes,
+  useNavigate,
+  useParams,
+} from "react-router-dom";
+import "./App.css";
+import ChatHistory from "./components/ChatHistory";
+import ChatInput, { type ChatInputHandle } from "./components/ChatInput";
+import ChatSidebar from "./components/ChatSidebar";
+import SettingsPanel from "./components/SettingsPanel";
+import N8nPanel from "./components/N8nPanel";
+import Modal from "./components/Modal";
+import { useChatStore } from "./store/chatStore";
+import { useMcpServerStore } from "./store/mcpServerStore";
+import {
+  ensureMcpSession,
+  disconnectMcpSession,
+} from "./services/mcpClientManager";
 
-function App() {
-  const config = useChatStore((state) => state.config)
-  const messages = useChatStore((state) => state.messages)
-  const availableModels = useChatStore((state) => state.availableModels)
-  const isLoading = useChatStore((state) => state.isLoading)
-  const error = useChatStore((state) => state.error)
+function ChatRoute() {
+  const { chatId } = useParams<{ chatId?: string }>();
+  const navigate = useNavigate();
 
-  const setBaseUrl = useChatStore((state) => state.setBaseUrl)
-  const setApiKey = useChatStore((state) => state.setApiKey)
-  const setModel = useChatStore((state) => state.setModel)
-  const setSystemPrompt = useChatStore((state) => state.setSystemPrompt)
-  const fetchModels = useChatStore((state) => state.fetchModels)
-  const sendMessage = useChatStore((state) => state.sendMessage)
-  const resetConversation = useChatStore((state) => state.resetConversation)
-  const resetModels = useChatStore((state) => state.resetModels)
+  const messages = useChatStore((state) => state.messages);
+  const isLoading = useChatStore((state) => state.isLoading);
+  const error = useChatStore((state) => state.error);
+  const sendMessage = useChatStore((state) => state.sendMessage);
+  const config = useChatStore((state) => state.config);
+  const setModel = useChatStore((state) => state.setModel);
+  const availableModels = useChatStore((state) => state.availableModels);
+  const currentChatId = useChatStore((state) => state.currentChatId);
+  const loadChat = useChatStore((state) => state.loadChat);
+  const resetConversation = useChatStore((state) => state.resetConversation);
+  const setTemperature = useChatStore((state) => state.setTemperature);
+  const setMaxTokens = useChatStore((state) => state.setMaxTokens);
+  const setTopP = useChatStore((state) => state.setTopP);
+  const setPresencePenalty = useChatStore((state) => state.setPresencePenalty);
+  const setFrequencyPenalty = useChatStore((state) => state.setFrequencyPenalty);
+  const currentSystemPrompt = useChatStore((state) => state.currentSystemPrompt);
+  const setCurrentSystemPrompt = useChatStore((state) => state.setCurrentSystemPrompt);
+  const currentTitleModel = useChatStore((state) => state.currentTitleModel);
+  const setCurrentTitleModel = useChatStore((state) => state.setCurrentTitleModel);
+  const saveCurrentChatMetadata = useChatStore((state) => state.saveCurrentChatMetadata);
+  const hasUnsavedSystemPrompt = useChatStore((state) => state.hasUnsavedSystemPrompt);
+  const hasUnsavedTitleModel = useChatStore((state) => state.hasUnsavedTitleModel);
 
-  const servers = useMcpServerStore((state) => state.servers)
-  const activeServerId = useMcpServerStore((state) => state.activeServerId)
-  const setActiveServer = useMcpServerStore((state) => state.setActiveServer)
-  const setServerStatus = useMcpServerStore((state) => state.setServerStatus)
-  const registerServer = useMcpServerStore((state) => state.registerServer)
-  const removeServer = useMcpServerStore((state) => state.removeServer)
+  const [prompt, setPrompt] = useState("");
+  const [clipboardMessage, setClipboardMessage] = useState<string | null>(null);
+  const chatInputRef = useRef<ChatInputHandle>(null);
 
-  const [prompt, setPrompt] = useState('')
-  const [showSettings, setShowSettings] = useState(false)
+  const defaultTitleModelLabel = useMemo(() => {
+    const trimmed = config.titleModel?.trim();
+    return trimmed && trimmed.length ? trimmed : "chat model";
+  }, [config.titleModel]);
+
+  const handleSaveSystemPrompt = useCallback(() => {
+    void saveCurrentChatMetadata();
+  }, [saveCurrentChatMetadata]);
+
+  const handleTitleModelChange = useCallback(
+    (value: string) => {
+      const trimmed = value.trim();
+      const normalized = trimmed.length ? trimmed : null;
+      setCurrentTitleModel(normalized);
+      if (currentChatId) {
+        void saveCurrentChatMetadata();
+      }
+    },
+    [currentChatId, saveCurrentChatMetadata, setCurrentTitleModel],
+  );
 
   useEffect(() => {
-    const trimmedBaseUrl = config.baseUrl.trim()
-    if (!trimmedBaseUrl) {
-      resetModels()
-      return
+    if (chatId) {
+      if (chatId !== currentChatId) {
+        let cancelled = false;
+        const run = async () => {
+          const success = await loadChat(chatId);
+          if (!success && !cancelled) {
+            navigate("/", { replace: true });
+          }
+        };
+        void run();
+        return () => {
+          cancelled = true;
+        };
+      }
+      return;
     }
+    resetConversation();
+  }, [chatId, currentChatId, loadChat, resetConversation, navigate]);
 
-    let cancelled = false
+  useEffect(() => {
+    if (!chatId && currentChatId) {
+      navigate(`/chat/${currentChatId}`, { replace: true });
+    }
+  }, [chatId, currentChatId, navigate]);
+
+  useEffect(() => {
+    if (!clipboardMessage) {
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      setClipboardMessage(null);
+    }, 2500);
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [clipboardMessage]);
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      const isMeta = event.metaKey || event.ctrlKey;
+
+      if (event.shiftKey && !isMeta && key === "escape") {
+        event.preventDefault();
+        chatInputRef.current?.focusPrompt();
+        return;
+      }
+
+      if (event.shiftKey && isMeta && key === "c") {
+        event.preventDefault();
+        const lastMessage = messages[messages.length - 1];
+        if (!lastMessage) {
+          setClipboardMessage("No messages available to copy yet.");
+          return;
+        }
+        if (!navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {
+          setClipboardMessage("Clipboard API unavailable in this browser.");
+          return;
+        }
+        void navigator.clipboard
+          .writeText(lastMessage.content)
+          .then(() => setClipboardMessage("Last message copied to clipboard."))
+          .catch(() => setClipboardMessage("Copy failed. Check browser permissions."));
+      }
+    };
+
+    window.addEventListener("keydown", handler);
+    return () => {
+      window.removeEventListener("keydown", handler);
+    };
+  }, [messages]);
+
+  return (
+    <>
+      <section className="chat-settings-panel">
+        <div className="field">
+          <label htmlFor="chat-system-prompt">System prompt</label>
+          <textarea
+            id="chat-system-prompt"
+            value={currentSystemPrompt}
+            onChange={(event) => setCurrentSystemPrompt(event.target.value)}
+            rows={3}
+            placeholder="Enter a system instruction for this chat"
+          />
+          <div className="chat-settings-actions">
+            <span
+              className="chat-settings-status"
+              data-state={
+                currentChatId
+                  ? hasUnsavedSystemPrompt
+                    ? "dirty"
+                    : "clean"
+                  : "idle"
+              }
+            >
+              {currentChatId
+                ? hasUnsavedSystemPrompt
+                  ? "Unsaved changes"
+                  : "Saved"
+                : "No active chat"}
+            </span>
+            <button
+              type="button"
+              className="secondary"
+              onClick={handleSaveSystemPrompt}
+              disabled={!currentChatId || !hasUnsavedSystemPrompt}
+            >
+              Save prompt
+            </button>
+          </div>
+        </div>
+        <div className="field">
+          <label htmlFor="chat-title-model">Title generation model</label>
+          <select
+            id="chat-title-model"
+            value={currentTitleModel ?? ""}
+            onChange={(event) => handleTitleModelChange(event.target.value)}
+            disabled={availableModels.length === 0}
+            aria-busy={currentChatId && hasUnsavedTitleModel ? true : undefined}
+          >
+            <option value="">
+              {`Default (${defaultTitleModelLabel})`}
+            </option>
+            {availableModels.map((model) => (
+              <option key={model} value={model}>
+                {model}
+              </option>
+            ))}
+          </select>
+          <p className="hint">If set, titles are generated with this model instead of the default.</p>
+        </div>
+      </section>
+      <ChatHistory messages={messages} isLoading={isLoading} />
+      <ChatInput
+        ref={chatInputRef}
+        prompt={prompt}
+        onPromptChange={setPrompt}
+        onSend={async (value) => {
+          await sendMessage(value);
+          setPrompt("");
+        }}
+        isLoading={isLoading}
+        currentModel={config.model}
+        availableModels={availableModels}
+        onModelChange={setModel}
+        parameters={{
+          temperature: config.temperature,
+          maxTokens: config.maxTokens,
+          topP: config.topP,
+          presencePenalty: config.presencePenalty,
+          frequencyPenalty: config.frequencyPenalty,
+        }}
+        onParametersChange={{
+          setTemperature,
+          setMaxTokens,
+          setTopP,
+          setPresencePenalty,
+          setFrequencyPenalty,
+        }}
+      />
+      {clipboardMessage && (
+        <p className="info-message" role="status">
+          {clipboardMessage}
+        </p>
+      )}
+      {error && <p className="error-message">Request failed: {error}</p>}
+    </>
+  );
+}
+
+function ChatLayout() {
+  const navigate = useNavigate();
+
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
+
+  const isApplePlatform = useMemo(() => {
+    if (typeof navigator === "undefined") {
+      return false;
+    }
+    const platform = navigator.platform ?? navigator.userAgent;
+    return /mac|iphone|ipad|ipod/i.test(platform);
+  }, []);
+  const config = useChatStore((state) => state.config);
+  const setModel = useChatStore((state) => state.setModel);
+  const setTitleModel = useChatStore((state) => state.setTitleModel);
+  const fetchModels = useChatStore((state) => state.fetchModels);
+  const resetModels = useChatStore((state) => state.resetModels);
+  const refreshChats = useChatStore((state) => state.refreshChats);
+  const chatSummaries = useChatStore((state) => state.chatSummaries);
+  const isSyncingChats = useChatStore((state) => state.isSyncing);
+  const currentChatId = useChatStore((state) => state.currentChatId);
+  const deleteChat = useChatStore((state) => state.deleteChat);
+  const availableModels = useChatStore((state) => state.availableModels);
+  const createNewChat = useChatStore((state) => state.createNewChat);
+  const updateChatMetadata = useChatStore((state) => state.updateChatMetadata);
+  const resetConversation = useChatStore((state) => state.resetConversation);
+  const newChatShortcutHint = useMemo(
+    () => (isApplePlatform ? "⌘⌥N" : "Ctrl+Alt+N"),
+    [isApplePlatform],
+  );
+  const focusShortcutHint = "Shift+Esc";
+  const shortcutItems = useMemo(
+    () => [
+      {
+        description: "Start a new chat",
+        mac: "⌘⌥N",
+        other: "Ctrl+Alt+N",
+      },
+      {
+        description: "Focus the message input",
+        mac: focusShortcutHint,
+        other: focusShortcutHint,
+      },
+      {
+        description: "Copy the last message to the clipboard",
+        mac: "⌘⇧C",
+        other: "Ctrl+Shift+C",
+      },
+      {
+        description: "Close dialogs",
+        mac: "Esc",
+        other: "Esc",
+      },
+    ],
+    [focusShortcutHint],
+  );
+
+  const servers = useMcpServerStore((state) => state.servers);
+  const activeServerId = useMcpServerStore((state) => state.activeServerId);
+  const setActiveServer = useMcpServerStore((state) => state.setActiveServer);
+  const registerServer = useMcpServerStore((state) => state.registerServer);
+  const removeServer = useMcpServerStore((state) => state.removeServer);
+  const setServerStatus = useMcpServerStore((state) => state.setServerStatus);
+  const loadServers = useMcpServerStore((state) => state.loadServers);
+  const isSyncingServers = useMcpServerStore((state) => state.isSyncing);
+
+  useEffect(() => {
+    void refreshChats();
+    void loadServers();
+  }, [refreshChats, loadServers]);
+
+  useEffect(() => {
+    let cancelled = false;
 
     const run = async () => {
-      const success = await fetchModels()
+      const success = await fetchModels();
       if (!success && !cancelled) {
-        resetModels()
+        resetModels();
       }
-    }
+    };
 
-    void run()
+    void run();
 
     return () => {
-      cancelled = true
-    }
-  }, [config.baseUrl, config.apiKey, fetchModels, resetModels])
+      cancelled = true;
+    };
+  }, [fetchModels, resetModels]);
 
   useEffect(() => {
     if (!activeServerId) {
-      return
+      return;
     }
 
-    const activeServer = servers.find((server) => server.id === activeServerId)
+    const activeServer = servers.find((server) => server.id === activeServerId);
     if (!activeServer) {
-      return
+      return;
     }
 
-    const trimmedUrl = activeServer.baseUrl.trim()
+    const trimmedUrl = activeServer.baseUrl.trim();
     if (!trimmedUrl) {
-      setServerStatus(activeServerId, 'idle')
-      void disconnectMcpSession(activeServerId)
-      return
+      void setServerStatus(activeServerId, "idle");
+      void disconnectMcpSession(activeServerId);
+      return;
     }
 
-    let cancelled = false
-    setServerStatus(activeServerId, 'connecting')
+    let cancelled = false;
+    void setServerStatus(activeServerId, "connecting");
 
     const run = async () => {
       const sessionOk = await ensureMcpSession({
         serverId: activeServerId,
         baseUrl: trimmedUrl,
         apiKey: activeServer.apiKey,
-      })
+      });
 
       if (!cancelled) {
-        setServerStatus(activeServerId, sessionOk ? 'connected' : 'error')
+        void setServerStatus(activeServerId, sessionOk ? "connected" : "error");
       }
-    }
+    };
 
-    void run()
+    void run();
 
     return () => {
-      cancelled = true
-      void disconnectMcpSession(activeServerId)
-    }
-  }, [activeServerId, servers, setServerStatus])
-
+      cancelled = true;
+      void disconnectMcpSession(activeServerId);
+    };
+  }, [activeServerId, servers, setServerStatus]);
 
   const handleRefreshModels = useCallback(async () => {
-    const trimmedUrl = config.baseUrl.trim()
-    if (!trimmedUrl) {
-      resetModels()
-      return
-    }
-    resetModels()
-    const success = await fetchModels()
+    resetModels();
+    const success = await fetchModels();
     if (!success) {
-      resetModels()
+      resetModels();
     }
-  }, [config.baseUrl, fetchModels, resetModels])
+  }, [fetchModels, resetModels]);
+
+  const handleNewChat = useCallback(async () => {
+    resetConversation();
+    navigate("/", { replace: true });
+    await createNewChat();
+  }, [createNewChat, navigate, resetConversation]);
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+      const isModifierPressed = event.metaKey || event.ctrlKey;
+      if (isModifierPressed && event.altKey && event.key.toLowerCase() === "n") {
+        event.preventDefault();
+        void handleNewChat();
+      }
+    };
+
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [handleNewChat]);
+
+  const handleRenameChat = useCallback(
+    async (chatId: string, title: string | null) => {
+      await updateChatMetadata(chatId, { title: title ?? null });
+    },
+    [updateChatMetadata],
+  );
 
   const handleSelectServer = useCallback(
     (serverId: string) => {
-      setActiveServer(serverId)
+      setActiveServer(serverId);
     },
     [setActiveServer],
-  )
+  );
 
   const handleAddServer = useCallback(
-    (server: { name: string; baseUrl: string; apiKey?: string }) => {
-      const trimmedUrl = server.baseUrl.trim()
+    async (server: { name: string; baseUrl: string; apiKey?: string }) => {
+      const trimmedUrl = server.baseUrl.trim();
       if (!trimmedUrl) {
-        return
+        return;
       }
-      const name = server.name.trim() || `Server ${servers.length + 1}`
-      const apiKey = server.apiKey?.trim() || undefined
-      let id: string
+      const name = server.name.trim() || `Server ${servers.length + 1}`;
+      const apiKey = server.apiKey?.trim() || undefined;
       try {
-        id = registerServer({ name, baseUrl: trimmedUrl, apiKey })
+        const id = await registerServer({ name, baseUrl: trimmedUrl, apiKey });
+        setActiveServer(id);
+        void setServerStatus(id, "idle");
       } catch (error) {
-        console.error('Failed to register server', error)
-        return
+        console.error("Failed to register server", error);
       }
-      setActiveServer(id)
-      setServerStatus(id, 'idle')
     },
     [registerServer, servers.length, setActiveServer, setServerStatus],
-  )
+  );
 
   const handleRemoveServer = useCallback(
-    (serverId: string) => {
-      void disconnectMcpSession(serverId)
-      removeServer(serverId)
+    async (serverId: string) => {
+      void disconnectMcpSession(serverId);
+      await removeServer(serverId);
     },
     [removeServer],
-  )
+  );
+
+  const handleDeleteChat = useCallback(
+    async (chatId: string) => {
+      await deleteChat(chatId);
+      if (currentChatId === chatId) {
+        navigate("/");
+      }
+    },
+    [currentChatId, deleteChat, navigate],
+  );
+
+  const headerSubtitle = useMemo(
+    () =>
+      "Chat with OpenAI-compatible servers via the Responses API. Adjust settings or explore your automations.",
+    [],
+  );
 
   return (
     <div className="app-shell">
       <header className="app-header">
         <div>
           <h1>Chatbot Console</h1>
-          <p className="app-subtitle">
-            Chat with OpenAI-compatible servers via the Responses API. Adjust settings to switch
-            URLs or models.
-          </p>
+          <p className="app-subtitle">{headerSubtitle}</p>
         </div>
         <div className="header-actions">
           <button
             type="button"
             className="secondary"
-            onClick={() => setShowSettings((current) => !current)}
+            onClick={() => navigate("/n8n")}
+            title="Manage your n8n workflows"
           >
-            {showSettings ? 'Hide settings' : 'Show settings'}
+            Automations
           </button>
-          <button type="button" className="secondary" onClick={resetConversation}>
-            Clear chat
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => setIsSettingsOpen(true)}
+            title="Adjust application settings"
+          >
+            Show settings
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => setIsShortcutsOpen(true)}
+            title="View keyboard shortcuts"
+          >
+            Keyboard shortcuts
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => void handleNewChat()}
+            title={`Shortcut: ${newChatShortcutHint}`}
+          >
+            {`New chat (${newChatShortcutHint})`}
           </button>
         </div>
       </header>
 
-      <McpServerPanel
-        servers={servers}
-        activeServerId={activeServerId}
-        onSelect={handleSelectServer}
-        onAdd={handleAddServer}
-        onRemove={handleRemoveServer}
-      />
-
-      {showSettings && (
-        <SettingsPanel
-          config={config}
-          availableModels={availableModels}
-          onBaseUrlChange={setBaseUrl}
-          onApiKeyChange={setApiKey}
-          onModelChange={setModel}
-          onSystemPromptChange={setSystemPrompt}
-          onRefreshModels={handleRefreshModels}
-        />
+      {isSettingsOpen && (
+        <Modal title="Settings" onClose={() => setIsSettingsOpen(false)}>
+          <SettingsPanel
+            config={config}
+            availableModels={availableModels}
+            servers={servers}
+            activeServerId={activeServerId}
+            isSyncingServers={isSyncingServers}
+            onModelChange={setModel}
+            onTitleModelChange={setTitleModel}
+            onRefreshModels={handleRefreshModels}
+            onSelectServer={handleSelectServer}
+            onAddServer={handleAddServer}
+            onRemoveServer={handleRemoveServer}
+          />
+        </Modal>
       )}
 
-      <main className="panel chat-panel">
-        <ChatHistory messages={messages} isLoading={isLoading} />
-        <ChatInput
-          prompt={prompt}
-          onPromptChange={setPrompt}
-          onSend={sendMessage}
-          isLoading={isLoading}
-          currentModel={config.model}
-          availableModels={availableModels}
-          onModelChange={setModel}
-          disabled={!config.baseUrl.trim() || !config.model.trim() || availableModels.length === 0}
+      {isShortcutsOpen && (
+        <Modal title="Keyboard shortcuts" onClose={() => setIsShortcutsOpen(false)}>
+          <ul className="shortcut-list">
+            {shortcutItems.map((item) => (
+              <li key={item.description} className="shortcut-item">
+                <div className="shortcut-keys">
+                  <kbd data-active={isApplePlatform || item.mac === item.other ? "true" : "false"}>
+                    {item.mac}
+                  </kbd>
+                  {item.mac !== item.other && (
+                    <>
+                      <span className="shortcut-separator" aria-hidden="true">
+                        /
+                      </span>
+                      <kbd data-active={!isApplePlatform || item.mac === item.other ? "true" : "false"}>
+                        {item.other}
+                      </kbd>
+                    </>
+                  )}
+                </div>
+                <p className="shortcut-description">{item.description}</p>
+              </li>
+            ))}
+          </ul>
+        </Modal>
+      )}
+
+      <div className="chat-shell">
+        <ChatSidebar
+          chats={chatSummaries}
+          activeChatId={currentChatId}
+          isSyncing={isSyncingChats}
+          onRefresh={() => void refreshChats()}
+          onNewChat={() => void handleNewChat()}
+          onDelete={(chatId) => void handleDeleteChat(chatId)}
+          onRename={(chatId, title) => void handleRenameChat(chatId, title)}
+          newChatShortcutHint={newChatShortcutHint}
         />
-        {error && <p className="error-message">Request failed: {error}</p>}
-      </main>
+        <main className="panel chat-panel">
+          <Outlet />
+        </main>
+      </div>
     </div>
-  )
+  );
 }
 
-export default App
+function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<ChatLayout />}>
+        <Route index element={<ChatRoute />} />
+        <Route path="chat/:chatId" element={<ChatRoute />} />
+        <Route path="n8n" element={<N8nPanel />} />
+      </Route>
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}
+
+export default App;

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
 import type { ChatMessage } from '../store/chatStore'
 import { formatTimestamp } from '../utils/format'
 
@@ -68,7 +69,7 @@ export function ChatHistory({ messages, isLoading }: ChatHistoryProps) {
             <time className="chat-time">{formatTimestamp(message.createdAt)}</time>
           </div>
           <div className="chat-bubble">
-            <p>{message.content}</p>
+            <ReactMarkdown>{message.content}</ReactMarkdown>
           </div>
           <div className="chat-message-actions">
             <button type="button" className="copy-button" onClick={() => handleCopy(message)}>

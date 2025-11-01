@@ -1,0 +1,146 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.4.0'
+    id 'io.spring.dependency-management' version '1.1.6'
+    id 'jacoco'
+    id 'org.openapi.generator' version '7.6.0'
+}
+
+group = 'app.chatbot'
+version = '0.0.1-SNAPSHOT'
+description = 'Demo project for Spring Boot'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(17)
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	options.compilerArgs += "-parameters"
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'com.theokanning.openai-gpt3-java:service:0.18.2'
+    implementation 'org.openapitools:jackson-databind-nullable:0.2.6'
+    runtimeOnly 'com.h2database:h2'
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+    testCompileOnly 'org.projectlombok:lombok'
+    testAnnotationProcessor 'org.projectlombok:lombok'
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    finalizedBy(tasks.named('jacocoTestReport'))
+}
+
+def coverageIncludes = [
+        'app/chatbot/chat/ChatController.*',
+        'app/chatbot/chat/ChatService.*',
+        'app/chatbot/chat/ChatTitleService.*',
+        'app/chatbot/openai/OpenAiProperties.*',
+        'app/chatbot/openai/OpenAiProxyService.*',
+        'app/chatbot/openai/OpenAiProxyController.*'
+]
+
+jacocoTestReport {
+    dependsOn(tasks.named('test'))
+    reports {
+        xml.required = true
+        html.required = true
+    }
+    classDirectories.setFrom(
+            files(classDirectories.files.collect {
+                fileTree(dir: it, include: coverageIncludes)
+            })
+    )
+}
+
+jacocoTestCoverageVerification {
+    dependsOn(tasks.named('test'))
+    violationRules {
+        rule {
+            limit {
+                counter = 'LINE'
+                value = 'COVEREDRATIO'
+                minimum = 0.90
+            }
+        }
+    }
+    classDirectories.setFrom(
+            files(classDirectories.files.collect {
+                fileTree(dir: it, include: coverageIncludes)
+            })
+    )
+}
+
+tasks.named('check') {
+    dependsOn(tasks.named('jacocoTestCoverageVerification'))
+}
+
+openApiGenerate {
+    generatorName = 'java'
+    library = 'resttemplate'
+    inputSpec = "$projectDir/src/main/resources/n8n.yml"
+    outputDir = "$buildDir/generated/sources/openapi"
+    apiPackage = 'app.chatbot.n8n.api'
+    modelPackage = 'app.chatbot.n8n.model'
+    invokerPackage = 'app.chatbot.n8n.invoker'
+    configOptions = [
+            dateLibrary        : 'java8',
+            useRuntimeException: 'true',
+            useBeanValidation  : 'false',
+            serializableModel  : 'true',
+            useJakartaEe       : 'true',
+            modelNameSuffix    : 'Dto'
+    ]
+    modelNameMappings = [
+            tag          : 'TagDto',
+            workflow     : 'WorkflowDto',
+            workflowList : 'WorkflowListDto',
+            execution    : 'ExecutionDto',
+            executionList: 'ExecutionListDto',
+            credential   : 'CredentialDto',
+            audit        : 'AuditDto',
+            user         : 'UserDto',
+            userList     : 'UserListDto',
+            importResult : 'SourceControlImportResultDto',
+            pull         : 'SourceControlPullDto',
+            node         : 'WorkflowNodeDto',
+            workflowSettings: 'WorkflowSettingsDto'
+    ]
+}
+
+sourceSets {
+    main {
+        java {
+            srcDir "$buildDir/generated/sources/openapi/src/main/java"
+        }
+    }
+}
+
+tasks.named('compileJava') {
+    dependsOn(tasks.named('openApiGenerate'))
+}
+
+tasks.named('clean') {
+    doFirst {
+        delete("$buildDir/generated/sources/openapi")
+    }
+}
+
+['bootRun', 'run', 'installDist', 'startScripts', 'bootJar', 'jar'].each { taskName ->
+    tasks.matching { it.name == taskName }.configureEach {
+        dependsOn(tasks.named('openApiGenerate'))
+    }
+}

@@ -1,84 +1,262 @@
-import type { ChatConfig } from '../store/chatStore'
+import { useState } from "react";
+import type { ChatConfig } from "../store/chatStore";
+import type { McpServer, McpServerStatus } from "../store/mcpServerStore";
+
+const statusLabels: Record<McpServerStatus, string> = {
+  idle: "Idle",
+  connecting: "Connecting…",
+  connected: "Connected",
+  error: "Error",
+};
 
 interface SettingsPanelProps {
-  config: ChatConfig
-  availableModels: string[]
-  onBaseUrlChange: (url: string) => void
-  onApiKeyChange: (key: string) => void
-  onModelChange: (model: string) => void
-  onSystemPromptChange: (prompt: string) => void
-  onRefreshModels: () => void
+  config: ChatConfig;
+  availableModels: string[];
+  servers: McpServer[];
+  activeServerId: string | null;
+  isSyncingServers: boolean;
+  onModelChange: (model: string) => void;
+  onTitleModelChange: (model: string) => void;
+  onRefreshModels: () => void;
+  onSelectServer: (serverId: string) => void;
+  onAddServer: (server: {
+    name: string;
+    baseUrl: string;
+    apiKey?: string;
+  }) => Promise<void> | void;
+  onRemoveServer: (serverId: string) => Promise<void> | void;
 }
 
-export function SettingsPanel({
+function SettingsPanel({
   config,
   availableModels,
-  onBaseUrlChange,
-  onApiKeyChange,
+  servers,
+  activeServerId,
+  isSyncingServers,
   onModelChange,
-  onSystemPromptChange,
+  onTitleModelChange,
   onRefreshModels,
+  onSelectServer,
+  onAddServer,
+  onRemoveServer,
 }: SettingsPanelProps) {
+  const [activeTab, setActiveTab] = useState<"general" | "connectors">(
+    "general",
+  );
+  const [name, setName] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const resetConnectorForm = () => {
+    setName("");
+    setBaseUrl("");
+    setApiKey("");
+  };
+
+  const handleAddConnector = async () => {
+    const trimmedUrl = baseUrl.trim();
+    if (!trimmedUrl) {
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      await onAddServer({
+        name: name.trim() || `Connector ${servers.length + 1}`,
+        baseUrl: trimmedUrl,
+        apiKey: apiKey.trim() || undefined,
+      });
+      resetConnectorForm();
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <section className="panel settings">
-      <div className="field">
-        <label htmlFor="base-url">OpenAI API base URL</label>
-        <input
-          id="base-url"
-          type="text"
-          value={config.baseUrl}
-          placeholder="http://localhost:1234/v1"
-          onChange={(event) => onBaseUrlChange(event.target.value)}
-        />
-        <p className="hint">
-          Provide the Responses endpoint root. Relative paths resolve against the current origin.
-        </p>
+      <div className="settings-tabs">
+        <button
+          type="button"
+          className={`settings-tab ${activeTab === "general" ? "active" : ""}`}
+          onClick={() => setActiveTab("general")}
+        >
+          Allgemein
+        </button>
+        <button
+          type="button"
+          className={`settings-tab ${activeTab === "connectors" ? "active" : ""}`}
+          onClick={() => setActiveTab("connectors")}
+        >
+          Konnektoren
+        </button>
       </div>
-      <div className="field">
-        <label htmlFor="api-key">API key</label>
-        <input
-          id="api-key"
-          type="password"
-          value={config.apiKey ?? ''}
-          onChange={(event) => onApiKeyChange(event.target.value)}
-          placeholder="Optional"
-        />
-        <p className="hint">Stored locally in your browser only.</p>
-      </div>
-      <div className="field">
-        <label htmlFor="model-select">Model</label>
-        <div className="field-row">
-          <select
-            id="model-select"
-            value={config.model}
-            onChange={(event) => onModelChange(event.target.value)}
-            disabled={availableModels.length === 0}
-          >
-            <option value="" disabled>
-              {availableModels.length === 0 ? 'No models available' : 'Select a model'}
-            </option>
-            {availableModels.map((model) => (
-              <option key={model} value={model}>
-                {model}
-              </option>
-            ))}
-          </select>
-          <button type="button" className="secondary" onClick={onRefreshModels}>
-            Refresh
-          </button>
+
+      {activeTab === "general" ? (
+        <div className="settings-content settings-general">
+          <div className="field">
+            <label>Proxy target</label>
+            <p className="hint">
+              Requests are routed through the backend proxy at
+              {" http://localhost:8080/api/openai"}.
+            </p>
+          </div>
+          <div className="field">
+            <label htmlFor="model-select">Chat model</label>
+            <div className="field-row">
+              <select
+                id="model-select"
+                value={config.model}
+                onChange={(event) => onModelChange(event.target.value)}
+                disabled={availableModels.length === 0}
+              >
+                <option value="" disabled>
+                  {availableModels.length === 0
+                    ? "No models available"
+                    : "Select a model"}
+                </option>
+                {availableModels.map((model) => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="secondary"
+                onClick={onRefreshModels}
+              >
+                Refresh
+              </button>
+            </div>
+          </div>
+          <div className="field">
+            <label htmlFor="title-model">Titelerzeugungs-Modell</label>
+            <input
+              id="title-model"
+              list="title-model-options"
+              value={config.titleModel ?? ""}
+              onChange={(event) => onTitleModelChange(event.target.value)}
+              placeholder="Leer lassen, um Chat-Modell zu nutzen"
+            />
+            <datalist id="title-model-options">
+              {availableModels.map((model) => (
+                <option key={model} value={model} />
+              ))}
+            </datalist>
+            <p className="hint">
+              Wird genutzt, um aus der ersten Nutzer-Nachricht einen Chat-Titel
+              zu generieren (max. 25 Tokens).
+            </p>
+          </div>
         </div>
-      </div>
-      <div className="field field-full">
-        <label htmlFor="system-prompt">System prompt</label>
-        <textarea
-          id="system-prompt"
-          value={config.systemPrompt}
-          rows={3}
-          onChange={(event) => onSystemPromptChange(event.target.value)}
-        />
-      </div>
+      ) : (
+        <div className="settings-content settings-connectors">
+          <header className="connectors-header">
+            <div>
+              <h3>Konnektoren (MCP)</h3>
+              <p>
+                {isSyncingServers
+                  ? "Synchronisiere…"
+                  : `${servers.length} Konnektoren`}
+              </p>
+            </div>
+          </header>
+          {servers.length === 0 ? (
+            <div className="connectors-empty">
+              <p>
+                Keine Konnektoren vorhanden. Füge einen neuen Eintrag hinzu.
+              </p>
+            </div>
+          ) : (
+            <ul className="connector-list">
+              {servers.map((server) => {
+                const isActive = server.id === activeServerId;
+                return (
+                  <li
+                    key={server.id}
+                    className={`connector-item ${isActive ? "active" : ""}`}
+                  >
+                    <button
+                      type="button"
+                      className="connector-select"
+                      onClick={() => onSelectServer(server.id)}
+                    >
+                      <div className="connector-header">
+                        <span className="connector-name">{server.name}</span>
+                        <span className={`connector-status ${server.status}`}>
+                          {statusLabels[server.status]}
+                        </span>
+                      </div>
+                      <p className="connector-url">
+                        {server.baseUrl || "Not configured"}
+                      </p>
+                    </button>
+                    <button
+                      type="button"
+                      className="connector-remove"
+                      onClick={() => onRemoveServer(server.id)}
+                      disabled={servers.length === 1}
+                    >
+                      Entfernen
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          <form
+            className="connector-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleAddConnector();
+            }}
+          >
+            <h4>Neuen Konnektor hinzufügen</h4>
+            <div className="connector-grid">
+              <label>
+                <span>Name</span>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="LM Studio"
+                />
+              </label>
+              <label>
+                <span>Base URL</span>
+                <input
+                  type="text"
+                  value={baseUrl}
+                  onChange={(event) => setBaseUrl(event.target.value)}
+                  placeholder="http://localhost:1234"
+                  required
+                />
+              </label>
+              <label>
+                <span>API-Key</span>
+                <input
+                  type="text"
+                  value={apiKey}
+                  onChange={(event) => setApiKey(event.target.value)}
+                  placeholder="Optional"
+                />
+              </label>
+            </div>
+            <div className="connector-actions">
+              <button
+                type="submit"
+                className="secondary"
+                disabled={isSubmitting || !baseUrl.trim()}
+              >
+                Hinzufügen
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </section>
-  )
+  );
 }
 
-export default SettingsPanel
+export default SettingsPanel;
