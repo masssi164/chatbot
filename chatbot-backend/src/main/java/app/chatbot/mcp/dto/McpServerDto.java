@@ -1,15 +1,17 @@
 package app.chatbot.mcp.dto;
 
-import app.chatbot.mcp.McpServerStatus;
-
 import java.time.Instant;
+
+import app.chatbot.mcp.McpServerStatus;
+import app.chatbot.mcp.McpTransport;
 
 public record McpServerDto(
         String serverId,
         String name,
         String baseUrl,
-        String apiKey,
+        boolean hasApiKey,
         McpServerStatus status,
+        McpTransport transport,
         Instant lastUpdated
 ) {
 }

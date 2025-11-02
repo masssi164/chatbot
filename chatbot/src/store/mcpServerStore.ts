@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { apiClient } from "../services/apiClient";
+import { apiClient, type McpTransportType, type McpCapabilities } from "../services/apiClient";
 
 export type McpServerStatus = "idle" | "connecting" | "connected" | "error";
 
@@ -9,7 +9,9 @@ export interface McpServer {
   baseUrl: string;
   apiKey?: string;
   status: McpServerStatus;
+  transport: McpTransportType;
   lastUpdated: number;
+  capabilities?: McpCapabilities;
 }
 
 interface McpServerState {
@@ -17,6 +19,7 @@ interface McpServerState {
   activeServerId: string | null;
   isSyncing: boolean;
   loadServers: () => Promise<void>;
+  loadCapabilities: (serverId: string) => Promise<void>;
   registerServer: (
     server: Omit<McpServer, "status" | "lastUpdated" | "id"> & {
       id?: string;
@@ -49,6 +52,7 @@ function fromBackend(server: {
   baseUrl: string;
   apiKey?: string | null;
   status: "IDLE" | "CONNECTING" | "CONNECTED" | "ERROR";
+  transport: McpTransportType;
   lastUpdated: string;
 }): McpServer {
   return {
@@ -57,6 +61,7 @@ function fromBackend(server: {
     baseUrl: server.baseUrl,
     apiKey: server.apiKey ?? undefined,
     status: server.status.toLowerCase() as McpServerStatus,
+    transport: server.transport,
     lastUpdated: Date.parse(server.lastUpdated),
   };
 }
@@ -105,6 +110,7 @@ export const useMcpServerStore = create<McpServerState>((set, get) => ({
       baseUrl: server.baseUrl.trim(),
       apiKey: server.apiKey?.trim() || undefined,
       status: toBackendStatus(server.status ?? "idle"),
+      transport: server.transport,
     };
     const saved = await apiClient.upsertMcpServer(payload);
     const normalized = fromBackend(saved);
@@ -120,8 +126,53 @@ export const useMcpServerStore = create<McpServerState>((set, get) => ({
         activeServerId: state.activeServerId ?? normalized.id,
       };
     });
+
+    // Verify connection after registration
+    try {
+      const verifyResult = await apiClient.verifyMcpServer(serverId);
+      const updatedServer = {
+        ...normalized,
+        status: verifyResult.status.toLowerCase() as McpServerStatus,
+      };
+      set((state) => ({
+        servers: state.servers.map((item: McpServer) =>
+          item.id === serverId ? updatedServer : item,
+        ),
+      }));
+      console.log(
+        `MCP server ${serverId} verification: ${verifyResult.status}, tools: ${verifyResult.toolCount}`,
+      );
+    } catch (error) {
+      console.error(`Failed to verify MCP server ${serverId}`, error);
+      // Update status to error if verification fails
+      set((state) => ({
+        servers: state.servers.map((item: McpServer) =>
+          item.id === serverId ? { ...item, status: "error" } : item,
+        ),
+      }));
+    }
+
     return normalized.id;
   },
+
+  loadCapabilities: async (serverId) => {
+    const server = get().servers.find((s) => s.id === serverId);
+    if (!server || server.status !== "connected") {
+      return;
+    }
+
+    try {
+      const capabilities = await apiClient.getMcpCapabilities(serverId);
+      set((state) => ({
+        servers: state.servers.map((item: McpServer) =>
+          item.id === serverId ? { ...item, capabilities } : item,
+        ),
+      }));
+    } catch (error) {
+      console.error(`Failed to load capabilities for server ${serverId}`, error);
+    }
+  },
+
   setActiveServer: (serverId) =>
     set((state) => ({
       activeServerId: state.servers.some(

@@ -11,6 +11,43 @@ function resolveBaseUrl() {
 
 const API_BASE = resolveBaseUrl();
 
+export interface McpCapabilities {
+  tools: ToolInfo[];
+  resources: ResourceInfo[];
+  prompts: PromptInfo[];
+  serverInfo: ServerInfo;
+}
+
+export interface ToolInfo {
+  name: string;
+  description?: string;
+  inputSchema?: unknown;
+}
+
+export interface ResourceInfo {
+  uri: string;
+  name?: string;
+  description?: string;
+  mimeType?: string;
+}
+
+export interface PromptInfo {
+  name: string;
+  description?: string;
+  arguments: PromptArgument[];
+}
+
+export interface PromptArgument {
+  name: string;
+  description?: string;
+  required: boolean;
+}
+
+export interface ServerInfo {
+  name: string;
+  version: string;
+}
+
 export class ApiError extends Error {
   status: number;
   payload?: unknown;
@@ -137,12 +174,15 @@ export interface BackendChatCompletionRequest {
   parameters?: BackendCompletionParameters | null;
 }
 
+export type McpTransportType = "SSE" | "STREAMABLE_HTTP";
+
 export interface BackendMcpServer {
   serverId: string;
   name: string;
   baseUrl: string;
   apiKey?: string | null;
   status: "IDLE" | "CONNECTING" | "CONNECTED" | "ERROR";
+  transport: McpTransportType;
   lastUpdated: string;
 }
 
@@ -152,6 +192,7 @@ export interface BackendMcpServerRequest {
   baseUrl: string;
   apiKey?: string | null;
   status?: BackendMcpServer["status"];
+  transport?: McpTransportType;
 }
 
 export interface OpenAiModelList {
@@ -172,6 +213,12 @@ export interface BackendN8nConnectionRequest {
 export interface BackendN8nConnectionStatus {
   connected: boolean;
   message: string;
+}
+
+export interface McpConnectionStatus {
+  status: "IDLE" | "CONNECTING" | "CONNECTED" | "ERROR";
+  toolCount: number;
+  message: string | null;
 }
 
 export interface BackendN8nWorkflowSummary {
@@ -265,6 +312,20 @@ export const apiClient = {
     return fetch(buildUrl(`/mcp-servers/${encodeURIComponent(serverId)}`), {
       method: "DELETE",
     }).then((response) => handleResponse<void>(response));
+  },
+
+  verifyMcpServer(serverId: string): Promise<McpConnectionStatus> {
+    return fetch(buildUrl(`/mcp-servers/${encodeURIComponent(serverId)}/verify`), {
+      method: "POST",
+      headers: defaultHeaders,
+    }).then((response) => handleResponse<McpConnectionStatus>(response));
+  },
+
+  getMcpCapabilities(serverId: string): Promise<McpCapabilities> {
+    return fetch(buildUrl(`/mcp/servers/${encodeURIComponent(serverId)}/capabilities`), {
+      method: "GET",
+      headers: defaultHeaders,
+    }).then((response) => handleResponse<McpCapabilities>(response));
   },
 
   listModels(): Promise<OpenAiModelList> {

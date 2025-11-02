@@ -1,5 +1,7 @@
 package app.chatbot.mcp;
 
+import java.time.Instant;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -10,13 +12,10 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
-
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-
-import java.time.Instant;
 
 @Entity
 @Table(name = "mcp_servers")
@@ -45,6 +44,10 @@ public class McpServer {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private McpServerStatus status = McpServerStatus.IDLE;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private McpTransport transport = McpTransport.STREAMABLE_HTTP;
 
     @Column(nullable = false)
     private Instant lastUpdated;

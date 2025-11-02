@@ -125,7 +125,7 @@ class OpenAiProxyServiceTest {
 
         assertThatThrownBy(() -> service.createResponse(payload, null))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("Failed to reach the configured LLM endpoint")
+                .hasMessageContaining("Failed to reach LLM at")
                 .satisfies(ex ->
                         assertThat(((ResponseStatusException) ex).getStatusCode().value()).isEqualTo(502)
                 );

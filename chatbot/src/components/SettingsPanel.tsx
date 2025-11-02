@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { McpTransportType } from "../services/apiClient";
 import type { ChatConfig } from "../store/chatStore";
 import type { McpServer, McpServerStatus } from "../store/mcpServerStore";
 
@@ -7,6 +8,11 @@ const statusLabels: Record<McpServerStatus, string> = {
   connecting: "Connecting…",
   connected: "Connected",
   error: "Error",
+};
+
+const transportLabels: Record<McpTransportType, string> = {
+  STREAMABLE_HTTP: "Streamable HTTP (modern)",
+  SSE: "SSE (deprecated)",
 };
 
 interface SettingsPanelProps {
@@ -23,6 +29,7 @@ interface SettingsPanelProps {
     name: string;
     baseUrl: string;
     apiKey?: string;
+    transport: McpTransportType;
   }) => Promise<void> | void;
   onRemoveServer: (serverId: string) => Promise<void> | void;
 }
@@ -46,12 +53,14 @@ function SettingsPanel({
   const [name, setName] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [transport, setTransport] = useState<McpTransportType>("STREAMABLE_HTTP");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const resetConnectorForm = () => {
     setName("");
     setBaseUrl("");
     setApiKey("");
+    setTransport("STREAMABLE_HTTP");
   };
 
   const handleAddConnector = async () => {
@@ -65,6 +74,7 @@ function SettingsPanel({
         name: name.trim() || `Connector ${servers.length + 1}`,
         baseUrl: trimmedUrl,
         apiKey: apiKey.trim() || undefined,
+        transport,
       });
       resetConnectorForm();
     } finally {
@@ -241,6 +251,24 @@ function SettingsPanel({
                   onChange={(event) => setApiKey(event.target.value)}
                   placeholder="Optional"
                 />
+              </label>
+              <label>
+                <span>Transport</span>
+                <select
+                  value={transport}
+                  onChange={(event) =>
+                    setTransport(event.target.value as McpTransportType)
+                  }
+                >
+                  <option value="STREAMABLE_HTTP">
+                    {transportLabels.STREAMABLE_HTTP}
+                  </option>
+                  <option value="SSE">{transportLabels.SSE}</option>
+                </select>
+                <small className="hint">
+                  Streamable HTTP ist der moderne Standard. SSE wird nach August
+                  2025 nicht mehr unterstützt.
+                </small>
               </label>
             </div>
             <div className="connector-actions">

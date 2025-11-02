@@ -7,6 +7,19 @@
   gap: 1rem;
 }
 
+/* Screen reader only - visually hidden but accessible */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
 .app-header {
   padding: 1.5rem 1.75rem;
   background: rgba(255, 255, 255, 0.95);
@@ -853,6 +866,137 @@
   line-height: 1.55;
   color: #1f2937;
   box-shadow: 0 12px 28px rgba(99, 102, 241, 0.15);
+}
+
+/* Tool Call Badge */
+.tool-call-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.85rem;
+  background: linear-gradient(120deg, #f59e0b, #f97316);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  margin-bottom: 0.75rem;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.25);
+}
+
+.tool-call-badge:hover,
+.tool-call-badge:focus-visible {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(245, 158, 11, 0.35);
+  outline: 2px solid #f59e0b;
+  outline-offset: 2px;
+}
+
+.tool-icon {
+  font-size: 1rem;
+}
+
+.tool-count {
+  flex: 1;
+}
+
+.expand-icon {
+  font-size: 0.75rem;
+  opacity: 0.85;
+}
+
+/* Tool Call Details */
+.tool-call-details {
+  background: rgba(251, 250, 255, 0.6);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  border-radius: 12px;
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.tool-call-item {
+  background: #fff;
+  border-radius: 8px;
+  padding: 0.85rem;
+  border-left: 3px solid #10b981;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.tool-call-item.error {
+  border-left-color: #ef4444;
+}
+
+.tool-call-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.tool-name {
+  font-weight: 600;
+  color: #1f2937;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9rem;
+}
+
+.tool-status {
+  font-size: 1.1rem;
+  color: #10b981;
+}
+
+.tool-call-item.error .tool-status {
+  color: #ef4444;
+}
+
+.tool-call-server {
+  font-size: 0.8rem;
+  color: #6b7280;
+  margin-bottom: 0.5rem;
+}
+
+.tool-call-args,
+.tool-call-result {
+  margin-top: 0.5rem;
+}
+
+.tool-call-args summary,
+.tool-call-result summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #4b5563;
+  padding: 0.35rem 0;
+  user-select: none;
+}
+
+.tool-call-args summary:hover,
+.tool-call-result summary:hover {
+  color: #1f2937;
+}
+
+.tool-call-args pre,
+.tool-call-result pre {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 0.65rem;
+  margin-top: 0.35rem;
+  overflow-x: auto;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.tool-call-args code,
+.tool-call-result code {
+  font-family: 'Courier New', Consolas, monospace;
+  color: #374151;
 }
 
 .chat-message.user .chat-bubble {

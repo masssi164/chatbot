@@ -1,25 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Navigate,
-  Outlet,
-  Route,
-  Routes,
-  useNavigate,
-  useParams,
+    Navigate,
+    Outlet,
+    Route,
+    Routes,
+    useNavigate,
+    useParams,
 } from "react-router-dom";
 import "./App.css";
 import ChatHistory from "./components/ChatHistory";
 import ChatInput, { type ChatInputHandle } from "./components/ChatInput";
 import ChatSidebar from "./components/ChatSidebar";
-import SettingsPanel from "./components/SettingsPanel";
-import N8nPanel from "./components/N8nPanel";
 import Modal from "./components/Modal";
+import N8nPanel from "./components/N8nPanel";
+import SettingsPanel from "./components/SettingsPanel";
+import { McpCapabilitiesPanel } from "./components/McpCapabilitiesPanel";
+import {
+    disconnectMcpSession,
+    ensureMcpSession,
+} from "./services/mcpClientManager";
 import { useChatStore } from "./store/chatStore";
 import { useMcpServerStore } from "./store/mcpServerStore";
-import {
-  ensureMcpSession,
-  disconnectMcpSession,
-} from "./services/mcpClientManager";
 
 function ChatRoute() {
   const { chatId } = useParams<{ chatId?: string }>();
@@ -313,12 +314,32 @@ function ChatLayout() {
   const removeServer = useMcpServerStore((state) => state.removeServer);
   const setServerStatus = useMcpServerStore((state) => state.setServerStatus);
   const loadServers = useMcpServerStore((state) => state.loadServers);
+  const loadCapabilities = useMcpServerStore((state) => state.loadCapabilities);
   const isSyncingServers = useMcpServerStore((state) => state.isSyncing);
+
+  const activeServer = servers.find((s) => s.id === activeServerId);
+  const [isLoadingCapabilities, setIsLoadingCapabilities] = useState(false);
 
   useEffect(() => {
     void refreshChats();
     void loadServers();
   }, [refreshChats, loadServers]);
+
+  // Load capabilities when active server is connected
+  useEffect(() => {
+    if (!activeServerId || !activeServer || activeServer.status !== "connected") {
+      return;
+    }
+
+    if (activeServer.capabilities) {
+      return; // Already loaded
+    }
+
+    setIsLoadingCapabilities(true);
+    void loadCapabilities(activeServerId).finally(() => {
+      setIsLoadingCapabilities(false);
+    });
+  }, [activeServerId, activeServer, loadCapabilities]);
 
   useEffect(() => {
     let cancelled = false;
@@ -375,7 +396,9 @@ function ChatLayout() {
       cancelled = true;
       void disconnectMcpSession(activeServerId);
     };
-  }, [activeServerId, servers, setServerStatus]);
+    // 🔧 FIX: setServerStatus removed from dependencies to prevent infinite loop
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeServerId, servers]);
 
   const handleRefreshModels = useCallback(async () => {
     resetModels();
@@ -422,19 +445,38 @@ function ChatLayout() {
   );
 
   const handleAddServer = useCallback(
-    async (server: { name: string; baseUrl: string; apiKey?: string }) => {
+    async (server: {
+      name: string;
+      baseUrl: string;
+      apiKey?: string;
+      transport: "SSE" | "STREAMABLE_HTTP";
+    }) => {
       const trimmedUrl = server.baseUrl.trim();
       if (!trimmedUrl) {
         return;
       }
       const name = server.name.trim() || `Server ${servers.length + 1}`;
       const apiKey = server.apiKey?.trim() || undefined;
+      
+      let serverId: string | undefined;
+      
       try {
-        const id = await registerServer({ name, baseUrl: trimmedUrl, apiKey });
-        setActiveServer(id);
-        void setServerStatus(id, "idle");
+        serverId = await registerServer({
+          name,
+          baseUrl: trimmedUrl,
+          apiKey,
+          transport: server.transport,
+        });
+        setActiveServer(serverId);
+        void setServerStatus(serverId, "idle");
       } catch (error) {
-        console.error("Failed to register server", error);
+        console.error("Failed to register MCP server", error);
+        const errorMessage = error instanceof Error ? error.message : "Unknown error";
+        // Show error to user
+        if (serverId) {
+          void setServerStatus(serverId, "error");
+        }
+        alert(`Failed to register MCP server '${name}': ${errorMessage}`);
       }
     },
     [registerServer, servers.length, setActiveServer, setServerStatus],
@@ -522,6 +564,13 @@ function ChatLayout() {
             onAddServer={handleAddServer}
             onRemoveServer={handleRemoveServer}
           />
+          {activeServer && activeServer.status === "connected" && (
+            <McpCapabilitiesPanel
+              capabilities={activeServer.capabilities ?? null}
+              isLoading={isLoadingCapabilities}
+              serverName={activeServer.name}
+            />
+          )}
         </Modal>
       )}
 

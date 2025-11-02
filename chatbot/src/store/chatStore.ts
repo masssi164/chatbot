@@ -1,20 +1,29 @@
 import { create } from "zustand";
 import {
-  ApiError,
-  apiClient,
-  type BackendChat,
-  type BackendCreateChatRequest,
-  type BackendUpdateChatRequest,
+    ApiError,
+    apiClient,
+    type BackendChat,
+    type BackendCreateChatRequest,
+    type BackendUpdateChatRequest,
 } from "../services/apiClient";
 import logger from "../utils/logger";
 
 export type Role = "user" | "assistant";
+
+export interface ToolCallInfo {
+  toolName: string;
+  server: string;
+  arguments: string;
+  result: string;
+  success: boolean;
+}
 
 export interface ChatMessage {
   id: string;
   role: Role;
   content: string;
   createdAt: number;
+  toolCalls?: ToolCallInfo[];
 }
 
 export interface ChatSummary {

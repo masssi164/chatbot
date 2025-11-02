@@ -1,6 +1,7 @@
 package app.chatbot.mcp.dto;
 
 import app.chatbot.mcp.McpServerStatus;
+import app.chatbot.mcp.McpTransport;
 import jakarta.validation.constraints.NotBlank;
 
 public record McpServerRequest(
@@ -8,7 +9,8 @@ public record McpServerRequest(
         @NotBlank String name,
         @NotBlank String baseUrl,
         String apiKey,
-        McpServerStatus status
+        McpServerStatus status,
+        McpTransport transport
 ) {
 }
 

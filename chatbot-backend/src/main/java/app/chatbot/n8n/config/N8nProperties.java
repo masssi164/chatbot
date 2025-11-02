@@ -1,11 +1,12 @@
 package app.chatbot.n8n.config;
 
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
+import java.time.Duration;
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
-import java.time.Duration;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 
 @Validated
 @ConfigurationProperties(prefix = "n8n")
@@ -29,12 +30,6 @@ public class N8nProperties {
 
     @NotNull
     private Duration readTimeout = Duration.ofSeconds(30);
-
-    /**
-     * Secret used to encrypt sensitive values like API keys before persisting.
-     */
-    @NotBlank
-    private String encryptionKey;
 
     public String getBaseUrl() {
         return baseUrl;
@@ -66,13 +61,5 @@ public class N8nProperties {
 
     public void setReadTimeout(Duration readTimeout) {
         this.readTimeout = readTimeout;
-    }
-
-    public String getEncryptionKey() {
-        return encryptionKey;
-    }
-
-    public void setEncryptionKey(String encryptionKey) {
-        this.encryptionKey = encryptionKey;
     }
 }

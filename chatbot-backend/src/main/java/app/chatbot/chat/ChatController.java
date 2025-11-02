@@ -1,16 +1,7 @@
 package app.chatbot.chat;
 
-import app.chatbot.chat.dto.ChatDto;
-import app.chatbot.chat.MessageRole;
-import app.chatbot.chat.dto.ChatMessageDto;
-import app.chatbot.chat.dto.ChatMessageRequest;
-import app.chatbot.chat.dto.ChatSummaryDto;
-import app.chatbot.chat.dto.ChatCompletionRequest;
-import app.chatbot.chat.dto.CreateChatRequest;
-import app.chatbot.chat.dto.UpdateChatRequest;
-import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import java.util.List;
+
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,7 +14,15 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.List;
+import app.chatbot.chat.dto.ChatCompletionRequest;
+import app.chatbot.chat.dto.ChatDto;
+import app.chatbot.chat.dto.ChatMessageRequest;
+import app.chatbot.chat.dto.ChatSummaryDto;
+import app.chatbot.chat.dto.CreateChatRequest;
+import app.chatbot.chat.dto.UpdateChatRequest;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @RestController
 @RequestMapping("/api/chats")
@@ -61,10 +60,13 @@ public class ChatController {
                             request.systemPrompt(),
                             request.parameters()
                     );
+                    chat = chatService.getChat(chat.chatId());
                 } catch (ResponseStatusException exception) {
-                    log.warn("Assistant generation failed for new chat {}", chat.chatId(), exception);
+                    log.warn("Assistant generation failed for new chat {}: {}", 
+                            chat.chatId(), exception.getReason(), exception);
+                    // Re-throw so frontend gets proper error response
+                    throw exception;
                 }
-                chat = chatService.getChat(chat.chatId());
             }
         }
 

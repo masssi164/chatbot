@@ -1,0 +1,130 @@
+.mcp-capabilities-panel {
+  padding: 1rem;
+  background: var(--surface-secondary);
+  border-radius: 8px;
+  margin-top: 1rem;
+}
+
+.mcp-capabilities-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.mcp-capabilities-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.mcp-capabilities-version {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  background: var(--surface-tertiary);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+.mcp-capabilities-loading,
+.mcp-capabilities-empty {
+  padding: 2rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.mcp-capabilities-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.mcp-capabilities-section {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.mcp-section-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: var(--surface-primary);
+  border: none;
+  cursor: pointer;
+  transition: background 0.2s;
+  text-align: left;
+}
+
+.mcp-section-toggle:hover:not(:disabled) {
+  background: var(--surface-secondary);
+}
+
+.mcp-section-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.mcp-section-toggle.empty {
+  cursor: default;
+}
+
+.mcp-section-icon {
+  font-size: 1.25rem;
+}
+
+.mcp-section-title {
+  flex: 1;
+  font-weight: 500;
+  font-size: 0.875rem;
+}
+
+.mcp-section-arrow {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.mcp-section-content {
+  padding: 0.5rem;
+  background: var(--surface-secondary);
+  border-top: 1px solid var(--border-color);
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.mcp-item {
+  padding: 0.75rem;
+  background: var(--surface-primary);
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+}
+
+.mcp-item:last-child {
+  margin-bottom: 0;
+}
+
+.mcp-item-name {
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  margin-bottom: 0.25rem;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+.mcp-item-description {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin-bottom: 0.25rem;
+}
+
+.mcp-item-meta {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-style: italic;
+}

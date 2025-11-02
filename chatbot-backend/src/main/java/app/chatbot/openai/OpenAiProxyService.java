@@ -1,10 +1,11 @@
 package app.chatbot.openai;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import lombok.extern.slf4j.Slf4j;
+import java.util.List;
+
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import static org.springframework.http.HttpStatus.BAD_GATEWAY;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.lang.Nullable;
@@ -15,9 +16,9 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.List;
+import com.fasterxml.jackson.databind.JsonNode;
 
-import static org.springframework.http.HttpStatus.BAD_GATEWAY;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
 @Slf4j
@@ -38,8 +39,8 @@ public class OpenAiProxyService {
 
     public ResponseEntity<String> createResponse(JsonNode payload,
                                                  @Nullable String authorizationHeader) {
-        log.debug("Forwarding create response request to LLM (payloadTokens={})",
-                payload != null ? payload.toString().length() : 0);
+        log.info("Forwarding create response request to LLM: {} (payloadTokens={})",
+                payload, payload != null ? payload.toString().length() : 0);
         return execute(HttpMethod.POST, RESPONSES_PATH, payload, authorizationHeader, true);
     }
 
@@ -62,9 +63,12 @@ public class OpenAiProxyService {
         RestTemplate template = this.restTemplate;
         HttpHeaders headers = buildHeaders(body != null, authorizationHeader, useResponsesHeader);
         HttpEntity<JsonNode> entity = new HttpEntity<>(body, headers);
+        
+        String targetUrl = properties.baseUrl() + path;
+        
         try {
             ResponseEntity<String> response =
-                    template.exchange(path, method, entity, String.class);
+                    template.exchange(targetUrl, method, entity, String.class);
             log.trace("LLM call succeeded (status={}, path={})", response.getStatusCode(), path);
             return ResponseEntity
                     .status(response.getStatusCode())
@@ -80,10 +84,15 @@ public class OpenAiProxyService {
                     .headers(errorHeaders)
                     .body(exception.getResponseBodyAsString());
         } catch (RestClientException exception) {
+            // Enhanced error message with configuration guidance
             String message = exception.getRootCause() instanceof java.net.SocketTimeoutException
                     ? "LLM request timed out. Ensure the model is loaded and responsive."
-                    : "Failed to reach the configured LLM endpoint";
-            log.error("LLM call failed due to client exception (path={}, message={})", path, message, exception);
+                    : String.format("Failed to reach LLM at %s. Ensure server is running or update openai.base-url configuration.", 
+                                    properties.baseUrl());
+            
+            log.error("LLM call failed (url={}, path={}, method={}): {}", 
+                     properties.baseUrl(), path, method, message, exception);
+            
             throw new ResponseStatusException(BAD_GATEWAY, message, exception);
         }
     }

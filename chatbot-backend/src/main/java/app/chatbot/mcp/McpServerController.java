@@ -1,10 +1,7 @@
 package app.chatbot.mcp;
 
-import app.chatbot.mcp.dto.McpServerDto;
-import app.chatbot.mcp.dto.McpServerRequest;
-import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import java.util.List;
+
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -15,7 +12,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
+import app.chatbot.mcp.dto.McpConnectionStatusDto;
+import app.chatbot.mcp.dto.McpServerDto;
+import app.chatbot.mcp.dto.McpServerRequest;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @RestController
 @RequestMapping("/api/mcp-servers")
@@ -24,6 +26,7 @@ import java.util.List;
 public class McpServerController {
 
     private final McpServerService service;
+    private final McpConnectionService connectionService;
 
     @GetMapping
     public List<McpServerDto> listServers() {
@@ -55,5 +58,11 @@ public class McpServerController {
     public void delete(@PathVariable("serverId") String serverId) {
         log.debug("Deleting MCP server {}", serverId);
         service.delete(serverId);
+    }
+
+    @PostMapping("/{serverId}/verify")
+    public McpConnectionStatusDto verifyConnection(@PathVariable("serverId") String serverId) {
+        log.debug("Verifying connection to MCP server {}", serverId);
+        return service.verifyConnection(serverId);
     }
 }

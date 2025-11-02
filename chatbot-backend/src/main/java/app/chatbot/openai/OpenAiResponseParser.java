@@ -1,10 +1,15 @@
 package app.chatbot.openai;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+
 import org.springframework.util.StringUtils;
 
-import java.io.IOException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import app.chatbot.openai.dto.ToolCall;
 
 public final class OpenAiResponseParser {
 
@@ -115,5 +120,50 @@ public final class OpenAiResponseParser {
             builder.append("\n\n");
         }
         builder.append(trimmed);
+    }
+
+    /**
+     * Extracts tool calls from the Response API output array.
+     * Response API returns tool calls with type="function_call" in the output array.
+     *
+     * @param objectMapper Jackson ObjectMapper
+     * @param body         Response body from OpenAI Response API
+     * @return List of ToolCall objects
+     * @throws IOException if JSON parsing fails
+     */
+    public static List<ToolCall> extractToolCalls(ObjectMapper objectMapper, String body) throws IOException {
+        List<ToolCall> toolCalls = new ArrayList<>();
+
+        if (!StringUtils.hasText(body)) {
+            return toolCalls;
+        }
+
+        JsonNode root = objectMapper.readTree(body);
+        JsonNode output = root.get("output");
+
+        if (output == null || !output.isArray()) {
+            return toolCalls;
+        }
+
+        for (JsonNode item : output) {
+            if (item == null || !item.hasNonNull("type")) {
+                continue;
+            }
+
+            String type = item.get("type").asText("");
+            if (!"function_call".equalsIgnoreCase(type)) {
+                continue;
+            }
+
+            String callId = item.has("call_id") ? item.get("call_id").asText(null) : null;
+            String name = item.has("name") ? item.get("name").asText(null) : null;
+            JsonNode arguments = item.has("arguments") ? item.get("arguments") : null;
+
+            if (StringUtils.hasText(callId) && StringUtils.hasText(name)) {
+                toolCalls.add(new ToolCall(callId, name, arguments));
+            }
+        }
+
+        return toolCalls;
     }
 }

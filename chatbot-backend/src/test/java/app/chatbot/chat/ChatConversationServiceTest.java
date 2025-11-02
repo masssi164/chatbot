@@ -1,26 +1,32 @@
 package app.chatbot.chat;
 
-import app.chatbot.chat.dto.ChatMessageDto;
-import app.chatbot.chat.dto.ChatMessageRequest;
-import app.chatbot.chat.dto.CompletionParameters;
-import app.chatbot.openai.OpenAiProxyService;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.springframework.http.ResponseEntity;
-import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
-import org.springframework.web.server.ResponseStatusException;
-
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
+import org.springframework.web.server.ResponseStatusException;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import app.chatbot.chat.dto.ChatMessageDto;
+import app.chatbot.chat.dto.CompletionParameters;
+import app.chatbot.mcp.McpClientService;
+import app.chatbot.mcp.McpServerRepository;
+import app.chatbot.mcp.McpToolContextBuilder;
+import app.chatbot.openai.OpenAiProxyService;
 
 class ChatConversationServiceTest {
 
@@ -28,6 +34,9 @@ class ChatConversationServiceTest {
     private ChatService chatService;
     private OpenAiProxyService proxyService;
     private ChatTitleService chatTitleService;
+    private McpToolContextBuilder toolContextBuilder;
+    private McpClientService mcpClientService;
+    private McpServerRepository mcpServerRepository;
     private ChatConversationService conversationService;
 
     @BeforeEach
@@ -36,8 +45,20 @@ class ChatConversationServiceTest {
         chatService = mock(ChatService.class);
         proxyService = mock(OpenAiProxyService.class);
         chatTitleService = mock(ChatTitleService.class);
+        toolContextBuilder = mock(McpToolContextBuilder.class);
+        mcpClientService = mock(McpClientService.class);
+        mcpServerRepository = mock(McpServerRepository.class);
         ObjectMapper objectMapper = Jackson2ObjectMapperBuilder.json().build();
-        conversationService = new ChatConversationService(chatRepository, chatService, proxyService, chatTitleService, objectMapper);
+        conversationService = new ChatConversationService(
+            chatRepository, 
+            chatService, 
+            proxyService, 
+            chatTitleService, 
+            toolContextBuilder, 
+            mcpClientService, 
+            mcpServerRepository, 
+            objectMapper
+        );
     }
 
     @Test
