@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -15,6 +16,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import app.chatbot.security.AesGcmSecretEncryptor;
 import app.chatbot.security.SecretEncryptor;
+import io.modelcontextprotocol.spec.McpSchema;
+import reactor.core.publisher.Mono;
 
 /**
  * Tests für McpToolContextBuilder mit OpenAI Responses API MCP-Server-Format.
@@ -33,9 +36,20 @@ class McpToolContextBuilderTest {
     private final McpServerRepository repository = mock(McpServerRepository.class);
     private final SecretEncryptor secretEncryptor = new AesGcmSecretEncryptor("test-key-12345");
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final McpClientService clientService = mock(McpClientService.class);
     private final McpToolContextBuilder builder = new McpToolContextBuilder(
-        repository, secretEncryptor, objectMapper
+        repository, secretEncryptor, objectMapper, clientService
     );
+
+    @BeforeEach
+    void setUp() {
+        when(clientService.listToolsAsync(any()))
+                .thenReturn(Mono.just(List.of()));
+        when(clientService.listResourcesAsync(any()))
+                .thenReturn(Mono.just(List.of()));
+        when(clientService.listPromptsAsync(any()))
+                .thenReturn(Mono.just(List.of()));
+    }
 
     @Test
     void addsMcpServerConfigInResponsesApiFormat() throws Exception {
@@ -47,6 +61,9 @@ class McpToolContextBuilderTest {
         server.setStatus(McpServerStatus.CONNECTED);
         server.setSyncStatus(SyncStatus.SYNCED);
         server.setLastSyncedAt(Instant.now());
+        server.setToolsCache("[]");
+        server.setResourcesCache("[]");
+        server.setPromptsCache("[]");
         
         // Mit API Key
         String encryptedKey = secretEncryptor.encrypt("test-api-key");
@@ -85,6 +102,9 @@ class McpToolContextBuilderTest {
         server.setStatus(McpServerStatus.CONNECTED);
         server.setSyncStatus(SyncStatus.SYNCED);
         server.setLastSyncedAt(Instant.now());
+        server.setToolsCache("[]");
+        server.setResourcesCache("[]");
+        server.setPromptsCache("[]");
         // Kein API Key gesetzt
 
         when(repository.findAll()).thenReturn(List.of(server));
@@ -102,13 +122,16 @@ class McpToolContextBuilderTest {
     }
 
     @Test
-    void skipsServerWithExpiredSync() {
+    void usesStaleCacheWhenExpired() {
         McpServer server = new McpServer();
         server.setServerId("expired-server");
         server.setBaseUrl("https://expired.example.com/mcp");
         server.setStatus(McpServerStatus.CONNECTED);
         server.setSyncStatus(SyncStatus.SYNCED);
         server.setLastSyncedAt(Instant.now().minus(Duration.ofMinutes(10))); // Abgelaufen (> 5 Min)
+        server.setToolsCache("[]");
+        server.setResourcesCache("[]");
+        server.setPromptsCache("[]");
 
         when(repository.findAll()).thenReturn(List.of(server));
 
@@ -116,7 +139,60 @@ class McpToolContextBuilderTest {
         builder.augmentPayload(payload);
 
         ArrayNode tools = (ArrayNode) payload.get("tools");
+        assertThat(tools).hasSize(1);
+        assertThat(tools.get(0).path("server_label").asText()).isEqualTo("expired-server");
+    }
+
+    @Test
+    void skipsServerWithoutCachedCapabilities() {
+        McpServer server = new McpServer();
+        server.setServerId("no-cache-server");
+        server.setBaseUrl("https://nocache.example.com/mcp");
+        server.setStatus(McpServerStatus.CONNECTED);
+        server.setSyncStatus(SyncStatus.SYNCED);
+        server.setLastSyncedAt(Instant.now());
+        // Keine Cache-Werte gesetzt
+
+        when(repository.findAll()).thenReturn(List.of(server));
+
+        ObjectNode payload = objectMapper.createObjectNode();
+        builder.augmentPayload(payload);
+
+        ArrayNode tools = (ArrayNode) payload.get("tools");
+        assertThat(tools).isNotNull();
         assertThat(tools).isEmpty();
+        verify(clientService).listToolsAsync("no-cache-server");
+    }
+
+    @Test
+    void refreshesCacheWhenMissing() throws Exception {
+        McpServer server = new McpServer();
+        server.setServerId("fresh-server");
+        server.setBaseUrl("https://fresh.example.com/mcp");
+        server.setStatus(McpServerStatus.CONNECTED);
+        server.setSyncStatus(SyncStatus.SYNCED);
+        server.setLastSyncedAt(Instant.now().minus(Duration.ofMinutes(6)));
+
+        when(repository.findAll()).thenReturn(List.of(server));
+
+        McpSchema.Tool tool = McpSchema.Tool.builder()
+                .name("wikipedia")
+                .description("Search Wikipedia")
+                .build();
+
+        when(clientService.listToolsAsync("fresh-server"))
+                .thenReturn(Mono.just(List.of(tool)));
+
+        ObjectNode payload = objectMapper.createObjectNode();
+        builder.augmentPayload(payload);
+
+        ArrayNode tools = (ArrayNode) payload.get("tools");
+        assertThat(tools).hasSize(1);
+        assertThat(tools.get(0).path("server_label").asText()).isEqualTo("fresh-server");
+        verify(repository).save(argThat(saved ->
+                "fresh-server".equals(saved.getServerId())
+                        && saved.getToolsCache() != null
+                        && saved.getToolsCache().contains("wikipedia")));
     }
 
     @Test
@@ -164,6 +240,9 @@ class McpToolContextBuilderTest {
         server1.setSyncStatus(SyncStatus.SYNCED);
         server1.setLastSyncedAt(Instant.now());
         server1.setApiKey(secretEncryptor.encrypt("key1"));
+        server1.setToolsCache("[]");
+        server1.setResourcesCache("[]");
+        server1.setPromptsCache("[]");
 
         McpServer server2 = new McpServer();
         server2.setServerId("server-2");
@@ -172,6 +251,9 @@ class McpToolContextBuilderTest {
         server2.setSyncStatus(SyncStatus.SYNCED);
         server2.setLastSyncedAt(Instant.now());
         // Kein API Key
+        server2.setToolsCache("[]");
+        server2.setResourcesCache("[]");
+        server2.setPromptsCache("[]");
 
         when(repository.findAll()).thenReturn(List.of(server1, server2));
 
@@ -198,6 +280,9 @@ class McpToolContextBuilderTest {
         server.setStatus(McpServerStatus.CONNECTED);
         server.setSyncStatus(SyncStatus.SYNCED);
         server.setLastSyncedAt(Instant.now());
+        server.setToolsCache("[]");
+        server.setResourcesCache("[]");
+        server.setPromptsCache("[]");
 
         when(repository.findAll()).thenReturn(List.of(server));
 
@@ -223,5 +308,3 @@ class McpToolContextBuilderTest {
         assertThat(tools.get(1).path("type").asText()).isEqualTo("mcp");
     }
 }
-
-
