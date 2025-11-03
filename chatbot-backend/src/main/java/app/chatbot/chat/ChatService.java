@@ -6,8 +6,12 @@ import app.chatbot.chat.dto.ChatMessageRequest;
 import app.chatbot.chat.dto.ChatSummaryDto;
 import app.chatbot.chat.dto.CreateChatRequest;
 import app.chatbot.chat.dto.UpdateChatRequest;
+import app.chatbot.chat.dto.ToolCallInfo;
 import app.chatbot.utils.GenericMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -18,17 +22,20 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.Collections;
 
 import static org.springframework.http.HttpStatus.CONFLICT;
 import static org.springframework.http.HttpStatus.NOT_FOUND;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ChatService {
 
     private final ChatRepository chatRepository;
     private final GenericMapper mapper;
     private final ChatTitleService chatTitleService;
+    private final ObjectMapper objectMapper;
 
     @Transactional(readOnly = true)
     public List<ChatSummaryDto> listChats() {
@@ -112,7 +119,7 @@ public class ChatService {
         }
         chat.addMessage(message);
         chatRepository.save(chat);
-        return mapper.map(message, ChatMessageDto.class);
+        return toDto(message);
     }
 
     @Transactional
@@ -145,7 +152,9 @@ public class ChatService {
     }
 
     private ChatDto toDto(Chat chat) {
-        List<ChatMessageDto> messages = mapper.mapList(chat.getMessages(), ChatMessageDto.class);
+        List<ChatMessageDto> messages = chat.getMessages().stream()
+                .map(this::toDto)
+                .toList();
         return new ChatDto(
                 chat.getChatId(),
                 chat.getTitle(),
@@ -156,6 +165,32 @@ public class ChatService {
                 messages
         );
     }
+
+    private ChatMessageDto toDto(ChatMessage message) {
+        List<ToolCallInfo> toolCalls = deserializeToolCalls(message.getMetadata());
+        return new ChatMessageDto(
+                message.getMessageId(),
+                message.getRole(),
+                message.getContent(),
+                message.getCreatedAt(),
+                toolCalls.isEmpty() ? null : toolCalls
+        );
+    }
+
+    private List<ToolCallInfo> deserializeToolCalls(String metadata) {
+        if (!StringUtils.hasText(metadata)) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(metadata, TOOL_CALL_LIST_TYPE);
+        } catch (Exception ex) {
+            log.warn("Failed to deserialize tool call metadata: {}", ex.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    private static final TypeReference<List<ToolCallInfo>> TOOL_CALL_LIST_TYPE =
+            new TypeReference<>() {};
 
     private ChatMessage toEntity(ChatMessageRequest request) {
         ChatMessage message = mapper.map(request, ChatMessage.class);

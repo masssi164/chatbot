@@ -11,6 +11,7 @@ public record ChatMessageRequest(
         @NotBlank String messageId,
         @NotNull MessageRole role,
         @NotBlank String content,
-        Instant createdAt
+        Instant createdAt,
+        String metadata
 ) {
 }

@@ -2,6 +2,7 @@ package app.chatbot.chat;
 
 import app.chatbot.chat.dto.ChatMessageRequest;
 import app.chatbot.chat.dto.CreateChatRequest;
+import app.chatbot.chat.dto.ToolCallInfo;
 import app.chatbot.chat.dto.UpdateChatRequest;
 import app.chatbot.utils.GenericMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,14 +30,15 @@ class ChatServiceTest {
     private ChatRepository chatRepository;
     private ChatTitleService chatTitleService;
     private ChatService chatService;
+    private ObjectMapper objectMapper;
 
     @BeforeEach
     void setUp() {
         chatRepository = mock(ChatRepository.class);
         chatTitleService = mock(ChatTitleService.class);
-        ObjectMapper objectMapper = Jackson2ObjectMapperBuilder.json().build();
+        objectMapper = Jackson2ObjectMapperBuilder.json().build();
         GenericMapper mapper = new GenericMapper(objectMapper);
-        chatService = new ChatService(chatRepository, mapper, chatTitleService);
+        chatService = new ChatService(chatRepository, mapper, chatTitleService, objectMapper);
 
         when(chatRepository.save(any(Chat.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
@@ -50,7 +52,7 @@ class ChatServiceTest {
                 "You are helpful",
                 "  title-model  ",
                 null,
-                List.of(new ChatMessageRequest("msg-1", MessageRole.USER, "Hello there", Instant.now()))
+                List.of(new ChatMessageRequest("msg-1", MessageRole.USER, "Hello there", Instant.now(), null))
         );
 
         var result = chatService.saveChat(request);
@@ -79,7 +81,7 @@ class ChatServiceTest {
                 "You are helpful",
                 null,
                 null,
-                List.of(new ChatMessageRequest("msg-1", MessageRole.USER, "Hello there", Instant.now()))
+                List.of(new ChatMessageRequest("msg-1", MessageRole.USER, "Hello there", Instant.now(), null))
         );
 
         var result = chatService.saveChat(request);
@@ -140,6 +142,25 @@ class ChatServiceTest {
     }
 
     @Test
+    void getChatIncludesToolCallMetadata() throws Exception {
+        Chat chat = new Chat();
+        chat.setChatId("chat-tools");
+        ChatMessage message = createMessage("msg-tools");
+        message.setRole(MessageRole.ASSISTANT);
+        ToolCallInfo call = new ToolCallInfo("search", "server-1", "{}", "result", true);
+        message.setMetadata(objectMapper.writeValueAsString(List.of(call)));
+        chat.addMessage(message);
+
+        when(chatRepository.findWithMessagesByChatId("chat-tools")).thenReturn(Optional.of(chat));
+
+        var dto = chatService.getChat("chat-tools");
+
+        assertThat(dto.messages()).hasSize(1);
+        assertThat(dto.messages().get(0).toolCalls()).isNotNull();
+        assertThat(dto.messages().get(0).toolCalls()).containsExactly(call);
+    }
+
+    @Test
     void getChatThrowsWhenMissing() {
         when(chatRepository.findWithMessagesByChatId("missing")).thenReturn(Optional.empty());
 
@@ -162,7 +183,7 @@ class ChatServiceTest {
 
         when(chatRepository.findWithMessagesByChatId("chat-1")).thenReturn(Optional.of(chat));
 
-        ChatMessageRequest request = new ChatMessageRequest("new-msg", MessageRole.ASSISTANT, "Hello", null);
+        ChatMessageRequest request = new ChatMessageRequest("new-msg", MessageRole.ASSISTANT, "Hello", null, null);
 
         chatService.addMessage("chat-1", request);
 
@@ -185,7 +206,7 @@ class ChatServiceTest {
 
         when(chatRepository.findWithMessagesByChatId("chat-1")).thenReturn(Optional.of(chat));
 
-        ChatMessageRequest duplicate = new ChatMessageRequest("dup", MessageRole.USER, "Another", null);
+        ChatMessageRequest duplicate = new ChatMessageRequest("dup", MessageRole.USER, "Another", null, null);
 
         assertThatThrownBy(() -> chatService.addMessage("chat-1", duplicate))
                 .isInstanceOf(ResponseStatusException.class)

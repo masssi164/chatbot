@@ -52,7 +52,7 @@ class ChatTitleServiceTest {
                 .thenReturn(ResponseEntity.ok("{\"output_text\":\"Amazing Title\"}"));
 
         List<ChatMessageRequest> messages = List.of(
-                new ChatMessageRequest("msg-1", MessageRole.USER, "Hello", Instant.now())
+                new ChatMessageRequest("msg-1", MessageRole.USER, "Hello", Instant.now(), null)
         );
 
         chatTitleService.generateTitle("chat-1", "preferred", messages);
@@ -73,7 +73,7 @@ class ChatTitleServiceTest {
                 .thenReturn(ResponseEntity.ok("{\"output_text\":\"\\\"Quoted\\\"\"}"));
 
         chatTitleService.generateTitle("chat-2", null, List.of(
-                new ChatMessageRequest("msg-1", MessageRole.USER, "Hello", Instant.now())
+                new ChatMessageRequest("msg-1", MessageRole.USER, "Hello", Instant.now(), null)
         ));
 
         verify(chatRepository).save(argThat(saved -> {
@@ -92,7 +92,7 @@ class ChatTitleServiceTest {
                 .thenReturn(ResponseEntity.ok("{\"output_text\":\"" + longTitle + "\"}"));
 
         chatTitleService.generateTitle("chat-3", null, List.of(
-                new ChatMessageRequest("msg-1", MessageRole.USER, "Hello", Instant.now())
+                new ChatMessageRequest("msg-1", MessageRole.USER, "Hello", Instant.now(), null)
         ));
 
         verify(chatRepository).save(argThat(saved -> {
@@ -117,7 +117,7 @@ class ChatTitleServiceTest {
                 """));
 
         chatTitleService.generateTitle("chat-4", null, List.of(
-                new ChatMessageRequest("msg-1", MessageRole.USER, "Hello", Instant.now())
+                new ChatMessageRequest("msg-1", MessageRole.USER, "Hello", Instant.now(), null)
         ));
 
         verify(chatRepository).save(argThat(saved -> {
@@ -129,7 +129,7 @@ class ChatTitleServiceTest {
     @Test
     void skipsWhenNoUserMessage() {
         chatTitleService.generateTitle("chat-5", null, List.of(
-                new ChatMessageRequest("msg-1", MessageRole.ASSISTANT, "Hi", Instant.now())
+                new ChatMessageRequest("msg-1", MessageRole.ASSISTANT, "Hi", Instant.now(), null)
         ));
 
         verify(proxyService, never()).createResponse(any(), any());
@@ -145,7 +145,7 @@ class ChatTitleServiceTest {
                 .thenReturn(ResponseEntity.status(HttpStatus.BAD_GATEWAY).body("{}"));
 
         chatTitleService.generateTitle("chat-6", null, List.of(
-                new ChatMessageRequest("msg-1", MessageRole.USER, "Hi", Instant.now())
+                new ChatMessageRequest("msg-1", MessageRole.USER, "Hi", Instant.now(), null)
         ));
 
         verify(proxyService).createResponse(any(), any());
@@ -161,7 +161,7 @@ class ChatTitleServiceTest {
                 .thenReturn(ResponseEntity.ok("{\"output_text\":\"\"}"));
 
         chatTitleService.generateTitle("chat-7", null, List.of(
-                new ChatMessageRequest("msg-1", MessageRole.USER, "Hi", Instant.now())
+                new ChatMessageRequest("msg-1", MessageRole.USER, "Hi", Instant.now(), null)
         ));
 
         verify(proxyService).createResponse(any(), any());
@@ -177,7 +177,7 @@ class ChatTitleServiceTest {
                 .thenReturn(ResponseEntity.ok("{\"output_text\":\"Fallback\"}"));
 
         chatTitleService.generateTitle("chat-8", "  ", List.of(
-                new ChatMessageRequest("msg-1", MessageRole.USER, "Hi", Instant.now())
+                new ChatMessageRequest("msg-1", MessageRole.USER, "Hi", Instant.now(), null)
         ));
 
         verify(proxyService).createResponse(argThat(payload -> {
@@ -196,7 +196,7 @@ class ChatTitleServiceTest {
                 .thenReturn(ResponseEntity.ok("{\"output_text\":\"   \"}"));
 
         chatTitleService.generateTitle("chat-9", "preferred", List.of(
-                new ChatMessageRequest("msg-1", MessageRole.USER, "Hello", Instant.now())
+                new ChatMessageRequest("msg-1", MessageRole.USER, "Hello", Instant.now(), null)
         ));
 
         verify(chatRepository, never()).save(any());

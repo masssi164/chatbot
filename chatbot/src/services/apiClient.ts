@@ -133,11 +133,20 @@ export interface BackendChatSummary {
   messageCount: number;
 }
 
+export interface BackendToolCallInfo {
+  toolName: string;
+  server: string;
+  arguments: string;
+  result: string;
+  success: boolean;
+}
+
 export interface BackendChatMessage {
   messageId: string;
   role: "USER" | "ASSISTANT" | "SYSTEM";
   content: string;
   createdAt: string;
+  toolCalls?: BackendToolCallInfo[];
 }
 
 export interface BackendChat {
@@ -155,6 +164,7 @@ export interface BackendChatMessageRequest {
   role: "USER" | "ASSISTANT" | "SYSTEM";
   content: string;
   createdAt?: string | null;
+  metadata?: string | null;
 }
 
 export interface BackendCompletionParameters {

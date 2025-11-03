@@ -27,8 +27,8 @@ import reactor.core.publisher.Sinks;
 public class McpServerStatusStreamController {
 
     // Multi-cast Sink: Ein Event geht an alle Subscriber
-    private final Sinks.Many<McpServerStatusEvent> statusSink = 
-            Sinks.many().multicast().onBackpressureBuffer();
+    private final Sinks.Many<McpServerStatusEvent> statusSink =
+            Sinks.many().replay().limit(1);
 
     /**
      * SSE Endpoint für Live-Status-Updates ALLER MCP Server.
@@ -47,19 +47,23 @@ public class McpServerStatusStreamController {
      */
     @GetMapping(value = "/status-stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<McpServerStatusEvent>> streamAllServersStatus() {
-        log.info("Client connected to global status stream for all servers");
-        
-        return statusSink.asFlux()
-                // Kein .filter() → alle Events werden gestreamt
+        Flux<ServerSentEvent<McpServerStatusEvent>> statusUpdates = statusSink.asFlux()
                 .map(event -> ServerSentEvent.<McpServerStatusEvent>builder()
                         .id(String.valueOf(System.currentTimeMillis()))
-                        // Per HTML SSE Spezifikation ruft EventSource.onmessage nur Events ohne Custom-Namen ab.
-                        // Siehe https://html.spec.whatwg.org/multipage/server-sent-events.html#event-stream-interpretation
                         .data(event)
-                        .build())
-                .timeout(Duration.ofHours(1)) // Längeres Timeout für globalen Stream
+                        .build());
+
+        Flux<ServerSentEvent<McpServerStatusEvent>> heartbeat = Flux.interval(Duration.ofSeconds(15))
+                .map(tick -> ServerSentEvent.<McpServerStatusEvent>builder()
+                        .event("heartbeat")
+                        .comment("keep-alive")
+                        .build());
+
+        return Flux.merge(statusUpdates, heartbeat)
+                .doOnSubscribe(subscription -> log.info("Client connected to global status stream for all servers"))
                 .doOnCancel(() -> log.info("Client disconnected from global status stream"))
-                .doOnComplete(() -> log.info("Global status stream completed"));
+                .doOnError(error -> log.warn("Global status stream error", error))
+                .doFinally(signalType -> log.debug("Global status stream terminated ({})", signalType));
     }
 
     /**
@@ -80,9 +84,14 @@ public class McpServerStatusStreamController {
                         // Gleiches Verhalten wie oben: Default-Eventnamen für maximale Browser-Kompatibilität.
                         .data(event)
                         .build())
-                .timeout(Duration.ofMinutes(10)) // Auto-disconnect nach 10 Min ohne Events
+                .mergeWith(Flux.interval(Duration.ofSeconds(15))
+                        .map(tick -> ServerSentEvent.<McpServerStatusEvent>builder()
+                                .event("heartbeat")
+                                .comment("keep-alive")
+                                .build()))
                 .doOnCancel(() -> log.info("Client disconnected from status stream for server {}", serverId))
-                .doOnComplete(() -> log.info("Status stream completed for server {}", serverId));
+                .doOnError(error -> log.warn("Status stream error for server {}", serverId, error))
+                .doFinally(signal -> log.debug("Status stream terminated for server {} ({})", serverId, signal));
     }
 
     /**
@@ -91,6 +100,10 @@ public class McpServerStatusStreamController {
     @EventListener
     public void handleStatusEvent(McpServerStatusEvent event) {
         log.debug("Broadcasting status event for server {} to SSE clients", event.getServerId());
-        statusSink.tryEmitNext(event);
+        try {
+            statusSink.emitNext(event, Sinks.EmitFailureHandler.FAIL_FAST);
+        } catch (Sinks.EmissionException emissionException) {
+            log.warn("Failed to emit status event for server {}: {}", event.getServerId(), emissionException.getMessage());
+        }
     }
 }

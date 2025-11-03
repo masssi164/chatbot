@@ -1,10 +1,12 @@
 import { create } from "zustand";
 import {
-    ApiError,
-    apiClient,
-    type BackendChat,
-    type BackendCreateChatRequest,
-    type BackendUpdateChatRequest,
+  ApiError,
+  apiClient,
+  type BackendChat,
+  type BackendChatMessage,
+  type BackendCreateChatRequest,
+  type BackendToolCallInfo,
+  type BackendUpdateChatRequest,
 } from "../services/apiClient";
 import logger from "../utils/logger";
 
@@ -791,18 +793,28 @@ function toBackendMessage(message: ChatMessage) {
   };
 }
 
-function fromBackendMessage(message: {
-  messageId: string;
-  role: string;
-  content: string;
-  createdAt: string;
-}) {
+function fromBackendMessage(message: BackendChatMessage) {
+  const toolCalls = mapToolCalls(message.toolCalls);
   return {
     id: message.messageId,
     role: message.role.toLowerCase() as Role,
     content: message.content,
     createdAt: parseInstant(message.createdAt),
+    ...(toolCalls.length > 0 ? { toolCalls } : {}),
   };
+}
+
+function mapToolCalls(toolCalls?: BackendToolCallInfo[]) {
+  if (!toolCalls || toolCalls.length === 0) {
+    return [];
+  }
+  return toolCalls.map((tool) => ({
+    toolName: tool.toolName,
+    server: tool.server,
+    arguments: tool.arguments,
+    result: tool.result,
+    success: tool.success,
+  } satisfies ToolCallInfo));
 }
 
 function parseInstant(value: string | null | undefined) {

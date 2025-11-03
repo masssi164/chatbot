@@ -17,11 +17,11 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.server.ResponseStatusException;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.core.JsonProcessingException;
 
 import app.chatbot.chat.dto.ChatMessageDto;
 import app.chatbot.chat.dto.ChatMessageRequest;
@@ -34,6 +34,7 @@ import app.chatbot.mcp.McpServerStatus;
 import app.chatbot.mcp.McpToolContextBuilder;
 import app.chatbot.openai.OpenAiProxyService;
 import app.chatbot.openai.OpenAiResponseParser;
+import app.chatbot.openai.dto.McpCall;
 import app.chatbot.openai.dto.ToolCall;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -122,6 +123,7 @@ public class ChatConversationService {
         String responseBody = response.getBody();
         log.debug("Received initial LLM response (chatId={}, bodyLength={})", chatId, 
                 responseBody != null ? responseBody.length() : 0);
+        recordMcpCalls(responseBody);
 
         // Handle tool calls in a loop - Response API may request multiple rounds
         int maxToolCallRounds = 20; // Allow sufficient rounds for complex tool chains
@@ -150,6 +152,7 @@ public class ChatConversationService {
             
             try {
                 responseBody = handleToolCalls(payload, responseBody, toolCalls);
+                recordMcpCalls(responseBody);
             } catch (ResponseStatusException e) {
                 log.error("Tool call round {} failed (chatId={}): {}", toolCallRound, chatId, e.getReason(), e);
                 throw e;
@@ -179,18 +182,17 @@ public class ChatConversationService {
             throw new ResponseStatusException(INTERNAL_SERVER_ERROR, "No response text returned from model");
         }
 
+        List<ToolCallInfo> toolCalls = new ArrayList<>(toolCallTracker.get());
         ChatMessageRequest assistantMessage = new ChatMessageRequest(
                 UUID.randomUUID().toString(),
                 MessageRole.ASSISTANT,
                 assistantText.trim(),
-                Instant.now()
+                Instant.now(),
+                serializeToolCalls(toolCalls)
         );
 
-        // Get collected tool calls
-        List<ToolCallInfo> toolCalls = new ArrayList<>(toolCallTracker.get());
-        
         ChatMessageDto responseMessage = chatService.addMessage(chatId, assistantMessage);
-        
+
         // Add tool call information to the response
         ChatMessageDto responseWithToolCalls = new ChatMessageDto(
             responseMessage.messageId(),
@@ -209,6 +211,72 @@ public class ChatConversationService {
         log.info("Assistant response stored (chatId={}, messageId={}, toolCalls={})", 
             chatId, responseWithToolCalls.messageId(), toolCalls.size());
         return responseWithToolCalls;
+    }
+
+    private void recordMcpCalls(String responseBody) {
+        if (!StringUtils.hasText(responseBody)) {
+            return;
+        }
+
+        try {
+            List<McpCall> calls = OpenAiResponseParser.extractMcpCalls(objectMapper, responseBody);
+            if (calls.isEmpty()) {
+                return;
+            }
+
+            List<ToolCallInfo> tracker = toolCallTracker.get();
+            for (McpCall call : calls) {
+                if (!StringUtils.hasText(call.toolName())) {
+                    continue;
+                }
+
+                boolean success = !StringUtils.hasText(call.error());
+                String result = success
+                        ? defaultString(call.output(), "Tool returned no output.")
+                        : defaultString(call.error(), "Tool call failed");
+
+                String serverLabel = StringUtils.hasText(call.serverLabel())
+                        ? call.serverLabel()
+                        : "mcp";
+
+                String arguments = defaultString(call.arguments(), "{}");
+
+                boolean alreadyRecorded = tracker.stream().anyMatch(info ->
+                        info.toolName().equals(call.toolName())
+                                && defaultString(info.server(), "").equals(serverLabel)
+                                && defaultString(info.arguments(), "").equals(arguments)
+                                && success == info.success());
+                if (alreadyRecorded) {
+                    continue;
+                }
+
+                tracker.add(new ToolCallInfo(
+                        call.toolName(),
+                        serverLabel,
+                        arguments,
+                        result,
+                        success
+                ));
+            }
+        } catch (IOException ex) {
+            log.debug("Failed to parse MCP call output: {}", ex.getMessage());
+        }
+    }
+
+    private String defaultString(String value, String fallback) {
+        return StringUtils.hasText(value) ? value : fallback;
+    }
+
+    private String serializeToolCalls(List<ToolCallInfo> toolCalls) {
+        if (toolCalls == null || toolCalls.isEmpty()) {
+            return null;
+        }
+        try {
+            return objectMapper.writeValueAsString(toolCalls);
+        } catch (JsonProcessingException ex) {
+            log.warn("Failed to serialize tool call metadata", ex);
+            return null;
+        }
     }
 
     private ObjectNode buildPayload(Chat chat,
@@ -324,7 +392,9 @@ public class ChatConversationService {
                 throw new ResponseStatusException(BAD_GATEWAY, "Failed in second request: " + message);
             }
 
-            return secondResponse.getBody();
+            String secondBody = secondResponse.getBody();
+            recordMcpCalls(secondBody);
+            return secondBody;
         } catch (IOException ex) {
             throw new ResponseStatusException(INTERNAL_SERVER_ERROR, "Failed to process tool results", ex);
         }
@@ -617,7 +687,8 @@ public class ChatConversationService {
                 messageId,
                 message.getRole(),
                 message.getContent(),
-                message.getCreatedAt()
+                message.getCreatedAt(),
+                message.getMetadata()
         );
     }
 }

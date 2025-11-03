@@ -9,6 +9,7 @@ import org.springframework.util.StringUtils;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import app.chatbot.openai.dto.McpCall;
 import app.chatbot.openai.dto.ToolCall;
 
 public final class OpenAiResponseParser {
@@ -165,5 +166,60 @@ public final class OpenAiResponseParser {
         }
 
         return toolCalls;
+    }
+
+    /**
+     * Extracts completed MCP tool calls reported by the Responses API.
+     *
+     * @param objectMapper Jackson ObjectMapper
+     * @param body         Response body from OpenAI Response API
+     * @return List of McpCall objects
+     * @throws IOException if JSON parsing fails
+     */
+    public static List<McpCall> extractMcpCalls(ObjectMapper objectMapper, String body) throws IOException {
+        List<McpCall> calls = new ArrayList<>();
+
+        if (!StringUtils.hasText(body)) {
+            return calls;
+        }
+
+        JsonNode root = objectMapper.readTree(body);
+        JsonNode output = root.get("output");
+        if (output == null || !output.isArray()) {
+            return calls;
+        }
+
+        for (JsonNode item : output) {
+            if (item == null || !item.hasNonNull("type")) {
+                continue;
+            }
+
+            if (!"mcp_call".equalsIgnoreCase(item.get("type").asText())) {
+                continue;
+            }
+
+            String serverLabel = item.hasNonNull("server_label") ? item.get("server_label").asText() : null;
+            String name = item.hasNonNull("name") ? item.get("name").asText() : null;
+            String arguments = item.hasNonNull("arguments") ? item.get("arguments").asText() : null;
+            String error = item.hasNonNull("error") && !item.get("error").isNull() ? item.get("error").asText() : null;
+
+            String outputText = null;
+            JsonNode outputNode = item.get("output");
+            if (outputNode != null && !outputNode.isNull()) {
+                if (outputNode.isTextual()) {
+                    outputText = outputNode.asText();
+                } else if (outputNode.isArray() || outputNode.isObject()) {
+                    outputText = objectMapper.writeValueAsString(outputNode);
+                } else {
+                    outputText = outputNode.asText();
+                }
+            }
+
+            if (StringUtils.hasText(name)) {
+                calls.add(new McpCall(serverLabel, name, arguments, outputText, error));
+            }
+        }
+
+        return calls;
     }
 }
