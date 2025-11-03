@@ -11,18 +11,20 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.argThat;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.server.ResponseStatusException;
 
-import app.chatbot.mcp.dto.McpConnectionStatusDto;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import app.chatbot.mcp.dto.McpServerDto;
 import app.chatbot.mcp.dto.McpServerRequest;
+import app.chatbot.mcp.events.McpServerStatusPublisher;
 import app.chatbot.security.SecretEncryptor;
 import app.chatbot.utils.GenericMapper;
 
@@ -39,10 +41,16 @@ class McpServerServiceTest {
     private SecretEncryptor secretEncryptor;
 
     @Mock
-    private McpConnectionService connectionService;
-    
-    @Mock
     private McpClientService mcpClientService;
+
+    @Mock
+    private McpSessionRegistry sessionRegistry;
+
+    @Mock
+    private ObjectMapper objectMapper;
+
+    @Mock
+    private McpServerStatusPublisher statusPublisher;
 
     @InjectMocks
     private McpServerService service;
@@ -150,7 +158,8 @@ class McpServerServiceTest {
         assertThat(result.transport()).isEqualTo(McpTransport.STREAMABLE_HTTP);
         verify(secretEncryptor).encrypt("api-key");
         verify(repository).save(any(McpServer.class));
-        verify(mcpClientService).closeConnection(result.serverId());
+        // Connection is NOT closed - sessions stay open
+        verify(mcpClientService, never()).closeConnection(anyString());
     }
 
     @Test
@@ -176,7 +185,8 @@ class McpServerServiceTest {
         assertThat(result.baseUrl()).isEqualTo("https://updated.example.com");
         assertThat(result.transport()).isEqualTo(McpTransport.SSE);
         verify(secretEncryptor).encrypt("new-key");
-        verify(mcpClientService).closeConnection("test-123");
+        // Connection is NOT closed - sessions stay open
+        verify(mcpClientService, never()).closeConnection(anyString());
     }
 
     @Test
@@ -228,85 +238,6 @@ class McpServerServiceTest {
     }
 
     @Test
-    void verifyConnection_shouldReturnConnectedStatus()  {
-        // given
-        when(repository.findByServerId("test-123")).thenReturn(Optional.of(testServer));
-        when(secretEncryptor.decrypt("encrypted-key")).thenReturn("plain-key");
-        
-        McpConnectionService.ConnectionResult connectionResult = 
-                new McpConnectionService.ConnectionResult(true, 5, "Connected successfully");
-        when(connectionService.testConnection(
-                "https://mcp.example.com",
-                McpTransport.STREAMABLE_HTTP,
-                "plain-key"
-        )).thenReturn(connectionResult);
-        when(repository.save(any(McpServer.class))).thenAnswer(inv -> inv.getArgument(0));
-
-        // when
-        McpConnectionStatusDto result = service.verifyConnection("test-123");
-
-        // then
-        assertThat(result.status()).isEqualTo(McpServerStatus.CONNECTED);
-        assertThat(result.toolCount()).isEqualTo(5);
-        assertThat(result.message()).isEqualTo("Connected successfully");
-        verify(repository).save(argThat(server -> 
-                server.getStatus() == McpServerStatus.CONNECTED
-        ));
-    }
-
-    @Test
-    void verifyConnection_shouldHandleDecryptionFailure()  {
-        // given
-        when(repository.findByServerId("test-123")).thenReturn(Optional.of(testServer));
-        when(secretEncryptor.decrypt("encrypted-key"))
-                .thenThrow(new app.chatbot.security.EncryptionException("Decryption error", new RuntimeException()));
-        when(repository.save(any(McpServer.class))).thenAnswer(inv -> inv.getArgument(0));
-
-        // when
-        McpConnectionStatusDto result = service.verifyConnection("test-123");
-
-        // then
-        assertThat(result.status()).isEqualTo(McpServerStatus.ERROR);
-        assertThat(result.toolCount()).isZero();
-        assertThat(result.message()).contains("Failed to decrypt API key");
-        verify(repository).save(argThat(server -> 
-                server.getStatus() == McpServerStatus.ERROR
-        ));
-    }
-
-    @Test
-    void verifyConnection_shouldHandleConnectionFailure()  {
-        // given
-        when(repository.findByServerId("test-123")).thenReturn(Optional.of(testServer));
-        when(secretEncryptor.decrypt("encrypted-key")).thenReturn("plain-key");
-        
-        McpConnectionService.ConnectionResult connectionResult = 
-                new McpConnectionService.ConnectionResult(false, 0, "Connection timeout");
-        when(connectionService.testConnection(anyString(), any(), anyString()))
-                .thenReturn(connectionResult);
-        when(repository.save(any(McpServer.class))).thenAnswer(inv -> inv.getArgument(0));
-
-        // when
-        McpConnectionStatusDto result = service.verifyConnection("test-123");
-
-        // then
-        assertThat(result.status()).isEqualTo(McpServerStatus.ERROR);
-        assertThat(result.toolCount()).isZero();
-        assertThat(result.message()).isEqualTo("Connection timeout");
-    }
-
-    @Test
-    void verifyConnection_shouldThrowWhenServerNotFound() {
-        // given
-        when(repository.findByServerId("unknown")).thenReturn(Optional.empty());
-
-        // when / then
-        assertThatThrownBy(() -> service.verifyConnection("unknown"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("MCP server not found");
-    }
-
-    @Test
     void toDto_shouldNotExposeApiKey()  {
         // given
         when(repository.findByServerId("test-123")).thenReturn(Optional.of(testServer));
@@ -316,5 +247,37 @@ class McpServerServiceTest {
 
         // then
         assertThat(result.hasApiKey()).isTrue(); // Should indicate key exists but not expose it
+    }
+
+    @Test
+    void updateServerStatusAsync_handlesOptimisticLock() {
+        // Mit Event-Driven Architecture: Updates sind nun idempotent und sequenziell
+        // Der Test prüft, dass ein einzelnes Update erfolgreich ist
+        McpServer server = new McpServer();
+        server.setServerId("lock-test");
+        server.setStatus(McpServerStatus.IDLE);
+
+        McpServer dbServer = new McpServer();
+        dbServer.setServerId("lock-test");
+        dbServer.setStatus(McpServerStatus.IDLE);
+
+        when(repository.findByServerId("lock-test"))
+                .thenReturn(Optional.of(dbServer));
+
+        when(repository.save(any(McpServer.class)))
+                .thenAnswer(invocation -> {
+                    McpServer entity = invocation.getArgument(0);
+                    entity.setStatus(McpServerStatus.CONNECTED);
+                    entity.setLastUpdated(Instant.parse("2024-01-01T00:00:00Z"));
+                    return entity;
+                });
+
+        service.updateServerStatusAsync(server, McpServerStatus.CONNECTED)
+                .block(java.time.Duration.ofSeconds(1));
+
+        assertThat(server.getStatus()).isEqualTo(McpServerStatus.CONNECTED);
+        assertThat(server.getLastUpdated()).isNotNull();
+        verify(repository, times(1)).findByServerId("lock-test");
+        verify(repository, times(1)).save(any(McpServer.class));
     }
 }

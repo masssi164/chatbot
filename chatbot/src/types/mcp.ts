@@ -33,4 +33,7 @@ export interface PromptArgument {
 export interface ServerInfo {
   name: string;
   version: string;
+  supportsTools?: boolean;
+  supportsResources?: boolean;
+  supportsPrompts?: boolean;
 }

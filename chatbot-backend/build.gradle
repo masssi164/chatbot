@@ -30,18 +30,32 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'com.theokanning.openai-gpt3-java:service:0.18.2'
     implementation 'org.openapitools:jackson-databind-nullable:0.2.6'
+    implementation 'io.projectreactor.netty:reactor-netty-http'
     
     // MCP Java SDK - Core dependencies for MCP client (SSE + Streamable HTTP transports)
     implementation platform('io.modelcontextprotocol.sdk:mcp-bom:0.15.0')
     implementation 'io.modelcontextprotocol.sdk:mcp'
+    implementation 'io.modelcontextprotocol.sdk:mcp-spring-webflux'
+    
+    // Reactor Netty für MCP Mock Server in Tests
+    testImplementation 'io.projectreactor.netty:reactor-netty-http'
+    testImplementation('org.springframework.ai:spring-ai-starter-mcp-server-webmvc:1.1.0-M4') {
+        exclude group: 'org.springframework.boot', module: 'spring-boot-starter'
+        exclude group: 'org.springframework.boot', module: 'spring-boot-starter-web'
+    }
+    testImplementation 'org.springframework.ai:spring-ai-mcp-annotations:1.1.0-M4'
+    testImplementation 'org.springaicommunity:mcp-annotations:0.6.0'
     
     runtimeOnly 'com.h2database:h2'
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
     testCompileOnly 'org.projectlombok:lombok'
     testAnnotationProcessor 'org.projectlombok:lombok'
-	testImplementation 'org.springframework.boot:spring-boot-starter-test'
-	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    testImplementation 'org.seleniumhq.selenium:selenium-java:4.25.0'
+    testImplementation 'io.github.bonigarcia:webdrivermanager:5.9.2'
+    testImplementation 'org.awaitility:awaitility:4.2.1'
 }
 
 tasks.named('test') {

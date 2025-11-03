@@ -4,13 +4,23 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Iterator;
+import java.util.List;
 import java.util.stream.Stream;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import app.chatbot.mcp.config.McpProperties;
+import app.chatbot.mcp.events.McpServerStatusPublisher;
+import app.chatbot.security.EncryptionException;
+import app.chatbot.security.SecretEncryptor;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientSseClientTransport;
@@ -61,6 +71,11 @@ import lombok.extern.slf4j.Slf4j;
 public class McpConnectionService {
 
     private final McpProperties properties;
+    private final McpServerRepository repository;
+    private final SecretEncryptor secretEncryptor;
+    private final McpSessionRegistry sessionRegistry;
+    private final ObjectMapper objectMapper;
+    private final McpServerStatusPublisher statusPublisher;
 
     /**
      * Result of a connection test attempt.
@@ -70,6 +85,194 @@ public class McpConnectionService {
      * @param message Error message if failed, null otherwise
      */
     public record ConnectionResult(boolean success, int toolCount, String message) {}
+
+    /**
+     * IDEMPOTENT connection and sync operation for Event-Driven Architecture.
+     * 
+     * Called by McpConnectionEventListener after McpServerUpdatedEvent.
+     * 
+     * ✅ Idempotent: Safe to call multiple times with same input
+     * ✅ Sequential: Spring EventListener guarantees sequential processing per listener
+     * ✅ Efficient: Checks if already connected/synced before doing work
+     * 
+     * Flow:
+     * 1. Check if already connected + recently synced → Skip
+     * 2. Set CONNECTING status
+     * 3. Open MCP session (15s timeout)
+     * 4. Set CONNECTED + SYNCING status
+     * 5. Fetch tools/resources/prompts
+     * 6. Save to DB + set SYNCED status
+     * 7. Publish SSE event to frontend
+     * 
+     * Microsoft Best Practice:
+     * "An idempotent operation is one that has no extra effect if it's called 
+     * more than once with the same input parameters"
+     * 
+     * @param serverId The server ID to connect
+     * @throws RuntimeException if connection/sync fails
+     */
+    public void connectAndSync(String serverId) {
+        log.info("Starting idempotent connect and sync for server {}", serverId);
+        
+        try {
+            // 1. Idempotent Check: Skip if already connected + recently synced
+            McpServer server = repository.findByServerId(serverId)
+                    .orElseThrow(() -> new RuntimeException("MCP server not found: " + serverId));
+            
+            if (server.getStatus() == McpServerStatus.CONNECTED 
+                && server.getSyncStatus() == SyncStatus.SYNCED
+                && server.getLastSyncedAt() != null
+                && Duration.between(server.getLastSyncedAt(), Instant.now()).toMinutes() < 5) {
+                log.info("Server {} already connected and recently synced ({}), skipping", 
+                        serverId, server.getLastSyncedAt());
+                return; // ✅ Idempotent: Multiple calls do nothing
+            }
+            
+            // 2. Set CONNECTING status
+            updateStatus(serverId, McpServerStatus.CONNECTING, SyncStatus.NEVER_SYNCED);
+            statusPublisher.publishStatusUpdate(serverId, server.getName(), 
+                    McpServerStatus.CONNECTING, SyncStatus.NEVER_SYNCED, "Connecting to MCP server...");
+            
+            // 3. Decrypt API Key
+            String decryptedApiKey = null;
+            if (StringUtils.hasText(server.getApiKey())) {
+                try {
+                    decryptedApiKey = secretEncryptor.decrypt(server.getApiKey());
+                } catch (EncryptionException ex) {
+                    log.error("Failed to decrypt API key for server {}", serverId, ex);
+                    updateStatus(serverId, McpServerStatus.ERROR, null);
+                    statusPublisher.publishStatusUpdate(serverId, server.getName(), 
+                            McpServerStatus.ERROR, SyncStatus.NEVER_SYNCED, "Failed to decrypt API key");
+                    return;
+                }
+            }
+            
+            // 4. Open MCP Session (blocking, 15s timeout)
+            log.info("Opening MCP session for server {}", serverId);
+            var sessionMono = sessionRegistry.getOrCreateSession(serverId);
+            var client = sessionMono.block(properties.initializationTimeout());
+            
+            if (client == null) {
+                throw new RuntimeException("Failed to create MCP session");
+            }
+            
+            // 5. Set CONNECTED + SYNCING
+            updateStatus(serverId, McpServerStatus.CONNECTED, SyncStatus.SYNCING);
+            statusPublisher.publishStatusUpdate(serverId, server.getName(), 
+                    McpServerStatus.CONNECTED, SyncStatus.SYNCING, "Fetching tools, resources and prompts...");
+            
+            // 6. Fetch Capabilities (blocking, 10s timeout each)
+            log.info("Fetching capabilities for server {}", serverId);
+
+            var toolsResult = client.listTools().block(Duration.ofSeconds(10));
+            List<McpSchema.Tool> tools = toolsResult != null && toolsResult.tools() != null 
+                    ? toolsResult.tools() : List.of();
+
+            var capabilities = client.getServerCapabilities();
+            boolean supportsResources = capabilities != null && capabilities.resources() != null;
+            boolean supportsPrompts = capabilities != null && capabilities.prompts() != null;
+
+            List<McpSchema.Resource> resources = List.of();
+            if (supportsResources) {
+                var resourcesResult = client.listResources().block(Duration.ofSeconds(10));
+                resources = resourcesResult != null && resourcesResult.resources() != null 
+                        ? resourcesResult.resources() : List.of();
+            } else {
+                log.info("Server {} does not advertise resources capability, skipping resource sync", serverId);
+            }
+
+            List<McpSchema.Prompt> prompts = List.of();
+            if (supportsPrompts) {
+                var promptsResult = client.listPrompts().block(Duration.ofSeconds(10));
+                prompts = promptsResult != null && promptsResult.prompts() != null 
+                        ? promptsResult.prompts() : List.of();
+            } else {
+                log.info("Server {} does not advertise prompts capability, skipping prompt sync", serverId);
+            }
+            
+            // 7. Serialize Capabilities
+            String toolsJson = objectMapper.writeValueAsString(tools);
+            String resourcesJson = objectMapper.writeValueAsString(resources);
+            String promptsJson = objectMapper.writeValueAsString(prompts);
+            
+            // 8. Save to DB + set SYNCED
+            saveCapabilitiesAndMarkSynced(serverId, toolsJson, resourcesJson, promptsJson);
+            
+            log.info("Successfully synced server {}: {} tools, {} resources, {} prompts", 
+                    serverId, tools.size(), resources.size(), prompts.size());
+            
+            // 9. Publish SSE Event
+            server = repository.findByServerId(serverId).orElseThrow();
+            statusPublisher.publishStatusWithCapabilities(
+                    server, 
+                    "Sync completed",
+                    objectMapper.readTree(toolsJson),
+                    objectMapper.readTree(resourcesJson),
+                    objectMapper.readTree(promptsJson)
+            );
+            
+        } catch (JsonProcessingException ex) {
+            log.error("Failed to serialize capabilities for server {}", serverId, ex);
+            updateStatus(serverId, McpServerStatus.CONNECTED, SyncStatus.SYNC_FAILED);
+            
+            // Publish error event to frontend
+            McpServer server = repository.findByServerId(serverId).orElse(null);
+            if (server != null) {
+                statusPublisher.publishStatusUpdate(serverId, server.getName(), 
+                        McpServerStatus.CONNECTED, SyncStatus.SYNC_FAILED, 
+                        "Failed to serialize capabilities: " + ex.getMessage());
+            }
+            
+            throw new RuntimeException("Serialization failed", ex);
+            
+        } catch (Exception ex) {
+            log.error("Connect and sync failed for server {}", serverId, ex);
+            updateStatus(serverId, McpServerStatus.ERROR, null);
+            
+            // Publish error event to frontend
+            McpServer server = repository.findByServerId(serverId).orElse(null);
+            if (server != null) {
+                statusPublisher.publishStatusUpdate(serverId, server.getName(), 
+                        McpServerStatus.ERROR, SyncStatus.NEVER_SYNCED, 
+                        "Connection failed: " + ex.getMessage());
+            }
+            
+            throw new RuntimeException("Connect/sync failed", ex);
+        }
+    }
+    
+    @Transactional
+    private void updateStatus(String serverId, McpServerStatus status, SyncStatus syncStatus) {
+        repository.findByServerId(serverId).ifPresent(server -> {
+            server.setStatus(status);
+            if (syncStatus != null) {
+                server.setSyncStatus(syncStatus);
+            }
+            repository.save(server);
+        });
+    }
+    
+    @Transactional
+    private void saveCapabilitiesAndMarkSynced(String serverId, String toolsJson, 
+                                                String resourcesJson, String promptsJson) {
+        repository.findByServerId(serverId).ifPresent(server -> {
+            server.setToolsCache(toolsJson);
+            server.setResourcesCache(resourcesJson);
+            server.setPromptsCache(promptsJson);
+            server.setLastSyncedAt(Instant.now());
+            server.setSyncStatus(SyncStatus.SYNCED);
+            repository.save(server);
+        });
+    }
+
+    /**
+     * Result of a connection test attempt.
+     *
+     * @param success Whether the connection was successful
+     * @param toolCount Number of tools discovered (0 if failed)
+     * @param message Error message if failed, null otherwise
+     */
+    public record ConnectionResult_OLD(boolean success, int toolCount, String message) {}
 
     /**
      * Detailed verification result following CQS principle.
@@ -228,6 +431,7 @@ public class McpConnectionService {
         try (McpSyncClient client = McpClient
                 .sync(clientTransport)
                 .clientInfo(new McpSchema.Implementation(properties.clientName(), properties.clientVersion()))
+                .capabilities(McpSchema.ClientCapabilities.builder().build())
                 .requestTimeout(properties.requestTimeout())
                 .initializationTimeout(properties.initializationTimeout())
                 .build()) {

@@ -1,149 +1,154 @@
 package app.chatbot.mcp;
 
-import java.net.http.HttpClient;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 
-import app.chatbot.mcp.config.McpProperties;
-import app.chatbot.security.SecretEncryptor;
-import io.modelcontextprotocol.client.McpClient;
-import io.modelcontextprotocol.client.McpSyncClient;
-import io.modelcontextprotocol.client.transport.HttpClientSseClientTransport;
-import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
-import io.modelcontextprotocol.spec.McpClientTransport;
 import io.modelcontextprotocol.spec.McpSchema;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import reactor.core.publisher.Mono;
 
 /**
  * Service für die Verwaltung von MCP-Client-Verbindungen zu externen MCP-Servern.
- * Unterstützt sowohl SSE als auch Streamable HTTP Transports.
+ * Delegiert Session-Management an McpSessionRegistry (Async mit Project Reactor).
  */
 @Service
+@RequiredArgsConstructor
 @Slf4j
 public class McpClientService {
 
-    private final McpProperties properties;
-    private final SecretEncryptor encryptor;
-    private final Map<String, McpSyncClient> activeConnections = new ConcurrentHashMap<>();
-
-    public McpClientService(McpProperties properties,
-                           SecretEncryptor encryptor) {
-        this.properties = properties;
-        this.encryptor = encryptor;
-    }
+    private final McpSessionRegistry sessionRegistry;
 
     /**
-     * Stellt eine Verbindung zu einem MCP-Server her und cached den Client.
+     * Listet alle verfügbaren Tools eines MCP-Servers auf (async).
      *
-     * @param server Der MCP-Server
-     * @return Der verbundene MCP-Client
+     * @param serverId Die Server-ID
+     * @return Mono mit Liste der verfügbaren Tools
      */
-    public McpSyncClient getOrCreateClient(McpServer server) {
-        return activeConnections.computeIfAbsent(server.getServerId(), key -> {
-            try {
-                String decryptedApiKey = decryptApiKey(server);
-                McpEndpointResolver.Endpoint endpoint = McpEndpointResolver
-                        .resolveCandidates(server, server.getTransport())
-                        .get(0);
-
-                McpClientTransport transport = createTransport(endpoint, decryptedApiKey, server.getTransport());
-
-                McpSyncClient client = McpClient
-                        .sync(transport)
-                        .clientInfo(new McpSchema.Implementation(properties.clientName(), properties.clientVersion()))
-                        .requestTimeout(properties.requestTimeout())
-                        .initializationTimeout(properties.initializationTimeout())
-                        .build();
-
-                client.initialize();
-                log.info("MCP client connected to server {} using {} transport at {}",
-                        server.getServerId(), server.getTransport(), endpoint.fullUrl());
-
-                return client;
-            } catch (Exception ex) {
-                log.error("Failed to create MCP client for server {}", server.getServerId(), ex);
-                throw new McpClientException("Failed to connect to MCP server: " + ex.getMessage(), ex);
-            }
-        });
+    public Mono<List<McpSchema.Tool>> listToolsAsync(String serverId) {
+        return sessionRegistry.getOrCreateSession(serverId)
+                .flatMap(client -> {
+                    var capabilities = client.getServerCapabilities();
+                    if (capabilities != null && capabilities.tools() == null) {
+                        log.info("Server {} does not advertise tools capability, returning empty list", serverId);
+                        return Mono.just(List.<McpSchema.Tool>of());
+                    }
+                    return client.listTools()
+                            .map(result -> {
+                                @SuppressWarnings("unchecked")
+                                List<McpSchema.Tool> tools = result != null && result.tools() != null
+                                        ? (List<McpSchema.Tool>) (List<?>) result.tools()
+                                        : List.of();
+                                return tools;
+                            })
+                            .onErrorResume(IllegalStateException.class, translateMissingCapability("tools", serverId));
+                })
+                .doOnError(ex -> log.error("Failed to list tools for server {}", serverId, ex));
     }
 
     /**
-     * Listet alle verfügbaren Tools eines MCP-Servers auf.
+     * Listet alle verfügbaren Resources eines MCP-Servers auf (async).
      *
-     * @param server Der MCP-Server
-     * @return Liste der verfügbaren Tools
+     * @param serverId Die Server-ID
+     * @return Mono mit Liste der verfügbaren Resources
      */
-    public List<McpSchema.Tool> listTools(McpServer server) {
-        try {
-            McpSyncClient client = getOrCreateClient(server);
-            McpSchema.ListToolsResult result = client.listTools();
-            return result != null && result.tools() != null ? result.tools() : List.of();
-        } catch (Exception ex) {
-            log.error("Failed to list tools for server {}", server.getServerId(), ex);
-            throw new McpClientException("Failed to list tools: " + ex.getMessage(), ex);
-        }
+    public Mono<List<McpSchema.Resource>> listResourcesAsync(String serverId) {
+        return sessionRegistry.getOrCreateSession(serverId)
+                .flatMap(client -> {
+                    var capabilities = client.getServerCapabilities();
+                    if (capabilities == null || capabilities.resources() == null) {
+                        log.debug("Server {} does not advertise resources capability, returning empty list", serverId);
+                        return Mono.just(List.<McpSchema.Resource>of());
+                    }
+                    return client.listResources()
+                            .map(result -> {
+                                @SuppressWarnings("unchecked")
+                                List<McpSchema.Resource> resources = result != null && result.resources() != null
+                                        ? (List<McpSchema.Resource>) (List<?>) result.resources()
+                                        : List.of();
+                                return resources;
+                            })
+                            .onErrorResume(IllegalStateException.class, translateMissingCapability("resources", serverId));
+                })
+                .doOnError(ex -> log.error("Failed to list resources for server {}", serverId, ex));
     }
 
     /**
-     * Listet alle verfügbaren Resources eines MCP-Servers auf.
+     * Listet alle verfügbaren Prompts eines MCP-Servers auf (async).
      *
-     * @param server Der MCP-Server
-     * @return Liste der verfügbaren Resources
+     * @param serverId Die Server-ID
+     * @return Mono mit Liste der verfügbaren Prompts
      */
-    public List<McpSchema.Resource> listResources(McpServer server) {
-        try {
-            McpSyncClient client = getOrCreateClient(server);
-            McpSchema.ListResourcesResult result = client.listResources();
-            return result != null && result.resources() != null ? result.resources() : List.of();
-        } catch (Exception ex) {
-            log.error("Failed to list resources for server {}", server.getServerId(), ex);
-            throw new McpClientException("Failed to list resources: " + ex.getMessage(), ex);
-        }
+    public Mono<List<McpSchema.Prompt>> listPromptsAsync(String serverId) {
+        return sessionRegistry.getOrCreateSession(serverId)
+                .flatMap(client -> {
+                    var capabilities = client.getServerCapabilities();
+                    if (capabilities == null || capabilities.prompts() == null) {
+                        log.debug("Server {} does not advertise prompts capability, returning empty list", serverId);
+                        return Mono.just(List.<McpSchema.Prompt>of());
+                    }
+                    return client.listPrompts()
+                            .map(result -> {
+                                @SuppressWarnings("unchecked")
+                                List<McpSchema.Prompt> prompts = result != null && result.prompts() != null
+                                        ? (List<McpSchema.Prompt>) (List<?>) result.prompts()
+                                        : List.of();
+                                return prompts;
+                            })
+                            .onErrorResume(IllegalStateException.class, translateMissingCapability("prompts", serverId));
+                })
+                .doOnError(ex -> log.error("Failed to list prompts for server {}", serverId, ex));
     }
 
     /**
-     * Listet alle verfügbaren Prompts eines MCP-Servers auf.
+     * Ruft ein Tool auf einem MCP-Server auf (async).
      *
-     * @param server Der MCP-Server
-     * @return Liste der verfügbaren Prompts
-     */
-    public List<McpSchema.Prompt> listPrompts(McpServer server) {
-        try {
-            McpSyncClient client = getOrCreateClient(server);
-            McpSchema.ListPromptsResult result = client.listPrompts();
-            return result != null && result.prompts() != null ? result.prompts() : List.of();
-        } catch (Exception ex) {
-            log.error("Failed to list prompts for server {}", server.getServerId(), ex);
-            throw new McpClientException("Failed to list prompts: " + ex.getMessage(), ex);
-        }
-    }
-
-    /**
-     * Ruft ein Tool auf einem MCP-Server auf.
-     *
-     * @param server Der MCP-Server
+     * @param serverId Die Server-ID
      * @param toolName Name des Tools
      * @param arguments Tool-Argumente
-     * @return Das Ergebnis des Tool-Aufrufs
+     * @return Mono mit dem Ergebnis des Tool-Aufrufs
      */
-    public McpSchema.CallToolResult callTool(McpServer server, String toolName, Map<String, Object> arguments) {
-        try {
-            McpSyncClient client = getOrCreateClient(server);
-            McpSchema.CallToolRequest request = new McpSchema.CallToolRequest(toolName, arguments);
-            McpSchema.CallToolResult result = client.callTool(request);
+    public Mono<McpSchema.CallToolResult> callToolAsync(String serverId, String toolName, Map<String, Object> arguments) {
+        return sessionRegistry.getOrCreateSession(serverId)
+                .flatMap(client -> {
+                    McpSchema.CallToolRequest request = new McpSchema.CallToolRequest(toolName, arguments);
+                    return client.callTool(request);
+                })
+                .doOnSuccess(result -> log.info("Tool {} called on server {} with result: {}",
+                        toolName, serverId, result != null ? "success" : "null"))
+                .doOnError(ex -> log.error("Failed to call tool {} on server {}", toolName, serverId, ex));
+    }
 
-            log.info("Tool {} called on server {} with result: {}",
-                    toolName, server.getServerId(), result != null ? "success" : "null");
+    /**
+     * Liefert die Server-Fähigkeiten für Diagnosezwecke.
+     *
+     * @param serverId Die Server-ID
+     * @return Mono mit den bekannten Server-Fähigkeiten (kann null sein, falls Server diese nicht meldet)
+     */
+    public Mono<McpSchema.ServerCapabilities> getServerCapabilities(String serverId) {
+        return sessionRegistry.getOrCreateSession(serverId)
+                .map(client -> {
+                    var capabilities = client.getServerCapabilities();
+                    if (capabilities == null) {
+                        log.debug("Server {} returned null capabilities snapshot", serverId);
+                    }
+                    return capabilities;
+                })
+                .doOnError(ex -> log.error("Failed to fetch server capabilities for {}", serverId, ex));
+    }
 
-            return result;
-        } catch (Exception ex) {
-            log.error("Failed to call tool {} on server {}", toolName, server.getServerId(), ex);
-            throw new McpClientException("Failed to call tool: " + ex.getMessage(), ex);
-        }
+    private <T> java.util.function.Function<Throwable, Mono<List<T>>> translateMissingCapability(String capabilityName, String serverId) {
+        return throwable -> {
+            if (throwable instanceof IllegalStateException ise
+                    && ise.getMessage() != null
+                    && ise.getMessage().toLowerCase().contains("does not provide")) {
+                log.info("Server {} rejected {} listing because capability is missing; returning empty list", serverId, capabilityName);
+                return Mono.just(List.<T>of());
+            }
+            return Mono.error(throwable);
+        };
     }
 
     /**
@@ -152,80 +157,9 @@ public class McpClientService {
      * @param serverId Die Server-ID
      */
     public void closeConnection(String serverId) {
-        McpSyncClient client = activeConnections.remove(serverId);
-        if (client != null) {
-            try {
-                client.closeGracefully();
-                log.info("Closed MCP client connection to server {}", serverId);
-            } catch (Exception ex) {
-                log.warn("Error closing MCP client for server {}", serverId, ex);
-            }
-        }
-    }
-
-    /**
-     * Schließt alle aktiven Verbindungen.
-     */
-    public void closeAllConnections() {
-        activeConnections.forEach((serverId, client) -> {
-            try {
-                client.closeGracefully();
-                log.info("Closed MCP client connection to server {}", serverId);
-            } catch (Exception ex) {
-                log.warn("Error closing MCP client for server {}", serverId, ex);
-            }
-        });
-        activeConnections.clear();
-    }
-
-    /**
-     * Gibt die Anzahl aktiver Verbindungen zurück.
-     *
-     * @return Anzahl aktiver Verbindungen
-     */
-    public int getActiveConnectionCount() {
-        return activeConnections.size();
-    }
-
-    private String decryptApiKey(McpServer server) {
-        if (!StringUtils.hasText(server.getApiKey())) {
-            return null;
-        }
-        try {
-            return encryptor.decrypt(server.getApiKey());
-        } catch (Exception ex) {
-            log.warn("Failed to decrypt API key for server {}", server.getServerId(), ex);
-            return null;
-        }
-    }
-
-    private McpClientTransport createTransport(McpEndpointResolver.Endpoint endpoint,
-                                               String decryptedApiKey,
-                                               McpTransport transport) {
-        HttpClient.Builder clientBuilder = HttpClient.newBuilder()
-                .connectTimeout(properties.connectTimeout());
-
-        java.net.http.HttpRequest.Builder requestBuilder = java.net.http.HttpRequest.newBuilder();
-        if (StringUtils.hasText(decryptedApiKey)) {
-            requestBuilder.header("Authorization", "Bearer " + decryptedApiKey.trim());
-        }
-
-        if (transport == McpTransport.STREAMABLE_HTTP) {
-            return HttpClientStreamableHttpTransport
-                    .builder(endpoint.baseUri())
-                    .clientBuilder(clientBuilder)
-                    .requestBuilder(requestBuilder)
-                    .endpoint(endpoint.relativePath())
-                    .connectTimeout(properties.connectTimeout())
-                    .build();
-        }
-
-        return HttpClientSseClientTransport
-                .builder(endpoint.baseUri())
-                .clientBuilder(clientBuilder)
-                .requestBuilder(requestBuilder)
-                .sseEndpoint(endpoint.relativePath())
-                .connectTimeout(properties.connectTimeout())
-                .build();
+        sessionRegistry.closeSession(serverId)
+                .doOnSuccess(v -> log.info("Closed MCP session for server {}", serverId))
+                .doOnError(ex -> log.warn("Error closing MCP session for server {}", serverId, ex))
+                .subscribe();
     }
 }

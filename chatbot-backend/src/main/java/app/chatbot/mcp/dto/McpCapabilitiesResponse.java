@@ -1,9 +1,9 @@
 package app.chatbot.mcp.dto;
 
+import java.util.List;
+
 import io.modelcontextprotocol.spec.McpSchema;
 import lombok.Builder;
-
-import java.util.List;
 
 /**
  * DTO für MCP Server Capabilities.
@@ -93,6 +93,9 @@ public record McpCapabilitiesResponse(
     @Builder
     public record ServerInfo(
         String name,
-        String version
+        String version,
+        boolean supportsTools,
+        boolean supportsResources,
+        boolean supportsPrompts
     ) {}
 }

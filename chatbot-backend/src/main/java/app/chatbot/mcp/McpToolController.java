@@ -3,7 +3,6 @@ package app.chatbot.mcp;
 import java.util.List;
 import java.util.Map;
 
-import app.chatbot.mcp.dto.McpCapabilitiesResponse;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -12,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import app.chatbot.mcp.dto.McpCapabilitiesResponse;
 import io.modelcontextprotocol.spec.McpSchema;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -47,9 +47,27 @@ public class McpToolController {
         }
 
         try {
-            List<McpSchema.Tool> tools = clientService.listTools(server);
-            List<McpSchema.Resource> resources = clientService.listResources(server);
-            List<McpSchema.Prompt> prompts = clientService.listPrompts(server);
+            McpSchema.ServerCapabilities capabilities = clientService.getServerCapabilities(server.getServerId())
+                    .block(java.time.Duration.ofSeconds(5));
+            boolean supportsTools = capabilities != null && capabilities.tools() != null;
+            boolean supportsResources = capabilities != null && capabilities.resources() != null;
+            boolean supportsPrompts = capabilities != null && capabilities.prompts() != null;
+
+            List<McpSchema.Tool> tools = clientService.listToolsAsync(server.getServerId())
+                    .block(java.time.Duration.ofSeconds(15));
+            if (tools == null) {
+                tools = List.of();
+            }
+            List<McpSchema.Resource> resources = clientService.listResourcesAsync(server.getServerId())
+                    .block(java.time.Duration.ofSeconds(15));
+            if (resources == null) {
+                resources = List.of();
+            }
+            List<McpSchema.Prompt> prompts = clientService.listPromptsAsync(server.getServerId())
+                    .block(java.time.Duration.ofSeconds(15));
+            if (prompts == null) {
+                prompts = List.of();
+            }
 
             McpCapabilitiesResponse response = McpCapabilitiesResponse.builder()
                     .tools(tools.stream().map(McpCapabilitiesResponse.ToolInfo::from).toList())
@@ -58,6 +76,9 @@ public class McpToolController {
                     .serverInfo(McpCapabilitiesResponse.ServerInfo.builder()
                             .name(server.getName())
                             .version("1.0")
+                            .supportsTools(supportsTools)
+                            .supportsResources(supportsResources)
+                            .supportsPrompts(supportsPrompts)
                             .build())
                     .build();
 
@@ -86,7 +107,8 @@ public class McpToolController {
         }
 
         try {
-            List<McpSchema.Tool> tools = clientService.listTools(server);
+            List<McpSchema.Tool> tools = clientService.listToolsAsync(server.getServerId())
+                    .block(java.time.Duration.ofSeconds(15));
             return ResponseEntity.ok(tools);
         } catch (McpClientException ex) {
             log.error("Failed to list tools for server {}", serverId, ex);
@@ -116,11 +138,11 @@ public class McpToolController {
         }
 
         try {
-            McpSchema.CallToolResult result = clientService.callTool(
-                    server,
+            McpSchema.CallToolResult result = clientService.callToolAsync(
+                    server.getServerId(),
                     request.toolName(),
                     request.arguments()
-            );
+            ).block(java.time.Duration.ofSeconds(30));
 
             return ResponseEntity.ok(new McpToolCallResponse(
                     result.content(),
@@ -130,19 +152,6 @@ public class McpToolController {
             log.error("Failed to call tool {} on server {}", request.toolName(), serverId, ex);
             return ResponseEntity.internalServerError().build();
         }
-    }
-
-    /**
-     * Gibt Statistiken über aktive MCP-Verbindungen zurück.
-     *
-     * @return Statistiken
-     */
-    @GetMapping("/stats")
-    public ResponseEntity<Map<String, Object>> getStats() {
-        return ResponseEntity.ok(Map.of(
-                "activeConnections", clientService.getActiveConnectionCount(),
-                "totalServers", serverRepository.count()
-        ));
     }
 
     /**

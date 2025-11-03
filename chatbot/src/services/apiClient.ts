@@ -46,6 +46,16 @@ export interface PromptArgument {
 export interface ServerInfo {
   name: string;
   version: string;
+  supportsTools?: boolean;
+  supportsResources?: boolean;
+  supportsPrompts?: boolean;
+}
+
+export interface SyncStatusResponse {
+  serverId: string;
+  status: "SYNCED" | "SYNCING" | "SYNC_FAILED" | "NEVER_SYNCED";
+  syncedAt?: string;
+  message?: string;
 }
 
 export class ApiError extends Error {
@@ -110,6 +120,10 @@ function buildUrl(path: string) {
 const defaultHeaders = {
   "Content-Type": "application/json",
 };
+
+export function resolveApiUrl(path: string) {
+  return buildUrl(path);
+}
 
 export interface BackendChatSummary {
   chatId: string;
@@ -215,12 +229,6 @@ export interface BackendN8nConnectionStatus {
   message: string;
 }
 
-export interface McpConnectionStatus {
-  status: "IDLE" | "CONNECTING" | "CONNECTED" | "ERROR";
-  toolCount: number;
-  message: string | null;
-}
-
 export interface BackendN8nWorkflowSummary {
   id: string;
   name: string;
@@ -314,18 +322,18 @@ export const apiClient = {
     }).then((response) => handleResponse<void>(response));
   },
 
-  verifyMcpServer(serverId: string): Promise<McpConnectionStatus> {
-    return fetch(buildUrl(`/mcp-servers/${encodeURIComponent(serverId)}/verify`), {
-      method: "POST",
-      headers: defaultHeaders,
-    }).then((response) => handleResponse<McpConnectionStatus>(response));
-  },
-
   getMcpCapabilities(serverId: string): Promise<McpCapabilities> {
     return fetch(buildUrl(`/mcp/servers/${encodeURIComponent(serverId)}/capabilities`), {
       method: "GET",
       headers: defaultHeaders,
     }).then((response) => handleResponse<McpCapabilities>(response));
+  },
+
+  syncMcpCapabilities(serverId: string): Promise<SyncStatusResponse> {
+    return fetch(buildUrl(`/mcp/servers/${encodeURIComponent(serverId)}/sync`), {
+      method: "POST",
+      headers: defaultHeaders,
+    }).then((response) => handleResponse<SyncStatusResponse>(response));
   },
 
   listModels(): Promise<OpenAiModelList> {

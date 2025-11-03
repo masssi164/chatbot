@@ -1,7 +1,8 @@
 import { create } from "zustand";
-import { apiClient, type McpTransportType, type McpCapabilities } from "../services/apiClient";
+import { apiClient, resolveApiUrl, type McpCapabilities, type McpTransportType } from "../services/apiClient";
 
 export type McpServerStatus = "idle" | "connecting" | "connected" | "error";
+export type McpSyncStatus = "NEVER_SYNCED" | "SYNCING" | "SYNCED" | "SYNC_FAILED";
 
 export interface McpServer {
   id: string;
@@ -9,6 +10,7 @@ export interface McpServer {
   baseUrl: string;
   apiKey?: string;
   status: McpServerStatus;
+  syncStatus?: McpSyncStatus;
   transport: McpTransportType;
   lastUpdated: number;
   capabilities?: McpCapabilities;
@@ -18,6 +20,9 @@ interface McpServerState {
   servers: McpServer[];
   activeServerId: string | null;
   isSyncing: boolean;
+  sseConnection: EventSource | null;
+  
+  // Core Actions
   loadServers: () => Promise<void>;
   loadCapabilities: (serverId: string) => Promise<void>;
   registerServer: (
@@ -33,6 +38,10 @@ interface McpServerState {
   ) => Promise<void>;
   setServerStatus: (serverId: string, status: McpServerStatus) => Promise<void>;
   removeServer: (serverId: string) => Promise<void>;
+  
+  // SSE Actions
+  connectToStatusStream: () => void;
+  disconnectFromStatusStream: () => void;
 }
 
 function safeId() {
@@ -85,6 +94,8 @@ export const useMcpServerStore = create<McpServerState>((set, get) => ({
   servers: [],
   activeServerId: null,
   isSyncing: false,
+  sseConnection: null,
+  
   loadServers: async () => {
     set({ isSyncing: true });
     try {
@@ -97,6 +108,9 @@ export const useMcpServerStore = create<McpServerState>((set, get) => ({
         isSyncing: false,
         activeServerId: state.activeServerId ?? servers[0]?.id ?? null,
       }));
+      
+      // Connect to SSE stream after loading initial servers
+      get().connectToStatusStream();
     } catch (error) {
       console.error("Failed to load MCP servers", error);
       set({ isSyncing: false });
@@ -126,31 +140,6 @@ export const useMcpServerStore = create<McpServerState>((set, get) => ({
         activeServerId: state.activeServerId ?? normalized.id,
       };
     });
-
-    // Verify connection after registration
-    try {
-      const verifyResult = await apiClient.verifyMcpServer(serverId);
-      const updatedServer = {
-        ...normalized,
-        status: verifyResult.status.toLowerCase() as McpServerStatus,
-      };
-      set((state) => ({
-        servers: state.servers.map((item: McpServer) =>
-          item.id === serverId ? updatedServer : item,
-        ),
-      }));
-      console.log(
-        `MCP server ${serverId} verification: ${verifyResult.status}, tools: ${verifyResult.toolCount}`,
-      );
-    } catch (error) {
-      console.error(`Failed to verify MCP server ${serverId}`, error);
-      // Update status to error if verification fails
-      set((state) => ({
-        servers: state.servers.map((item: McpServer) =>
-          item.id === serverId ? { ...item, status: "error" } : item,
-        ),
-      }));
-    }
 
     return normalized.id;
   },
@@ -220,17 +209,6 @@ export const useMcpServerStore = create<McpServerState>((set, get) => ({
       ),
     }));
 
-    try {
-      await apiClient.updateMcpServer(serverId, {
-        serverId,
-        name: current.name,
-        baseUrl: current.baseUrl,
-        apiKey: current.apiKey,
-        status: toBackendStatus(status),
-      });
-    } catch (error) {
-      console.error("Failed to persist MCP status", error);
-    }
   },
   removeServer: async (serverId) => {
     await apiClient.deleteMcpServer(serverId);
@@ -246,5 +224,82 @@ export const useMcpServerStore = create<McpServerState>((set, get) => ({
             : state.activeServerId,
       };
     });
+  },
+  
+  // SSE Real-time Status Updates
+  connectToStatusStream: () => {
+    const current = get().sseConnection;
+    if (current) {
+      console.log("SSE connection already active");
+      return;
+    }
+    
+    const eventSource = new EventSource(resolveApiUrl("/mcp/servers/status-stream"));
+    
+    eventSource.onmessage = (event) => {
+      try {
+        const statusEvent = JSON.parse(event.data);
+        console.log("SSE Status Update:", statusEvent);
+        
+        const updateServer = (server: McpServer) => {
+          if (server.id !== statusEvent.serverId) {
+            return server;
+          }
+          
+          // Map backend status to frontend status
+          const status = statusEvent.connectionStatus?.toLowerCase() as McpServerStatus;
+          const syncStatus = statusEvent.syncStatus as McpSyncStatus;
+          
+          // Extract capabilities from event if present (only in SYNCED events)
+          let capabilities = server.capabilities;
+          if (statusEvent.toolsJson && statusEvent.resourcesJson && statusEvent.promptsJson) {
+            capabilities = {
+              tools: statusEvent.toolsJson,
+              resources: statusEvent.resourcesJson,
+              prompts: statusEvent.promptsJson,
+              serverInfo: {
+                name: statusEvent.serverName ?? server.name,
+                version: "unknown", // Not included in event
+              },
+            };
+          }
+          
+          return {
+            ...server,
+            name: statusEvent.serverName ?? server.name,
+            status,
+            syncStatus,
+            capabilities,
+            lastUpdated: Date.now(),
+          };
+        };
+        
+        set((state) => ({
+          servers: state.servers.map(updateServer),
+        }));
+      } catch (error) {
+        console.error("Failed to parse SSE event:", error);
+      }
+    };
+    
+    eventSource.onerror = (error) => {
+      console.error("SSE connection error:", error);
+      // EventSource automatically reconnects
+    };
+    
+    eventSource.onopen = () => {
+      console.log("SSE connection established");
+    };
+    
+    set({ sseConnection: eventSource });
+  },
+  
+  disconnectFromStatusStream: () => {
+    const current = get().sseConnection;
+    if (current) {
+      console.log("Closing SSE connection");
+      current.close();
+      set({ sseConnection: null });
+    }
   },
 }));

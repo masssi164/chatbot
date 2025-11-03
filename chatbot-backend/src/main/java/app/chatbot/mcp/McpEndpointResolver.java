@@ -1,10 +1,10 @@
 package app.chatbot.mcp;
 
-import org.springframework.util.StringUtils;
-
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
+
+import org.springframework.util.StringUtils;
 
 /**
  * Determines candidate MCP transport endpoints based on the stored server configuration.

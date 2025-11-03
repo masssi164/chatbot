@@ -1,5 +1,7 @@
 package app.chatbot.chat;
 
+import static org.springframework.http.HttpStatus.*;
+
 import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -9,9 +11,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
-import static org.springframework.http.HttpStatus.BAD_GATEWAY;
-import static org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR;
-import static org.springframework.http.HttpStatus.NOT_FOUND;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,8 +29,8 @@ import app.chatbot.chat.dto.CompletionParameters;
 import app.chatbot.chat.dto.ToolCallInfo;
 import app.chatbot.mcp.McpClientService;
 import app.chatbot.mcp.McpServer;
-import app.chatbot.mcp.McpServerStatus;
 import app.chatbot.mcp.McpServerRepository;
+import app.chatbot.mcp.McpServerStatus;
 import app.chatbot.mcp.McpToolContextBuilder;
 import app.chatbot.openai.OpenAiProxyService;
 import app.chatbot.openai.OpenAiResponseParser;
@@ -332,7 +331,70 @@ public class ChatConversationService {
     }
 
     /**
+     * Findet MCP Server die ein bestimmtes Tool besitzen (aus toolsCache).
+     * Nutzt den Cache anstatt live-Abfragen für Performance.
+     * 
+     * @param toolName Der Tool-Name (mit mcp_<serverId>_ Prefix)
+     * @return Liste von Servern die das Tool haben (priorisiert nach SYNCED Status)
+     */
+    private List<McpServer> findServersWithTool(String toolName) {
+        // Extrahiere originalen Tool-Namen (entferne mcp_<serverId>_ Prefix falls vorhanden)
+        final String originalToolName;
+        final String targetServerId;
+        
+        if (toolName.startsWith("mcp_")) {
+            // Format: mcp_<serverId>_<toolName>
+            String[] parts = toolName.substring(4).split("_", 2);
+            if (parts.length == 2) {
+                targetServerId = parts[0];
+                originalToolName = parts[1];
+            } else {
+                targetServerId = null;
+                originalToolName = toolName;
+            }
+        } else {
+            targetServerId = null;
+            originalToolName = toolName;
+        }
+
+        log.debug("Searching for tool '{}' (original: '{}', target server: '{}')", 
+            toolName, originalToolName, targetServerId);
+
+        List<McpServer> candidates = mcpServerRepository.findAll().stream()
+                .filter(server -> server.getStatus() == McpServerStatus.CONNECTED)
+                .filter(server -> server.getSyncStatus() == app.chatbot.mcp.SyncStatus.SYNCED)
+                .filter(server -> targetServerId == null || server.getServerId().equals(targetServerId))
+                .filter(server -> hasToolInCache(server, originalToolName))
+                .toList();
+
+        log.debug("Found {} server(s) with tool '{}'", candidates.size(), originalToolName);
+        return candidates;
+    }
+
+    /**
+     * Prüft ob ein Server ein bestimmtes Tool in seinem Cache hat.
+     */
+    private boolean hasToolInCache(McpServer server, String toolName) {
+        if (server.getToolsCache() == null || server.getToolsCache().isBlank()) {
+            return false;
+        }
+
+        try {
+            List<io.modelcontextprotocol.spec.McpSchema.Tool> tools = objectMapper.readValue(
+                server.getToolsCache(),
+                new com.fasterxml.jackson.core.type.TypeReference<List<io.modelcontextprotocol.spec.McpSchema.Tool>>() {}
+            );
+            
+            return tools.stream().anyMatch(tool -> tool.name().equals(toolName));
+        } catch (Exception ex) {
+            log.warn("Failed to parse tools cache for server {}: {}", server.getServerId(), ex.getMessage());
+            return false;
+        }
+    }
+
+    /**
      * Executes a single tool call by routing to the appropriate MCP server.
+     * Nutzt findServersWithTool() um gezielt Server mit dem Tool anzusprechen.
      *
      * @param toolCall Tool call to execute
      * @return Tool execution result as JSON string
@@ -347,9 +409,16 @@ public class ChatConversationService {
         String argumentsJson = toolCall.arguments() != null ? toolCall.arguments().toString() : "{}";
         log.debug("Executing tool call: name={}, args={}", toolCall.name(), argumentsJson);
 
-        List<McpServer> servers = mcpServerRepository.findAll().stream()
-                .filter(server -> server.getStatus() == McpServerStatus.CONNECTED)
-                .toList();
+        // Nutze Cache-basierte Suche für Performance
+        List<McpServer> servers = findServersWithTool(toolCall.name());
+
+        // Fallback: Alle CONNECTED Server falls Cache-Suche leer
+        if (servers.isEmpty()) {
+            log.debug("No servers found in cache for tool '{}', trying all connected servers", toolCall.name());
+            servers = mcpServerRepository.findAll().stream()
+                    .filter(server -> server.getStatus() == McpServerStatus.CONNECTED)
+                    .toList();
+        }
 
         if (servers.isEmpty()) {
             String errorMsg = "Kein verbundener MCP Server verfügbar. Bitte prüfen Sie die MCP-Einstellungen.";
@@ -373,7 +442,8 @@ public class ChatConversationService {
                         toolCall.name(), server.getServerId(), server.getTransport());
 
                 io.modelcontextprotocol.spec.McpSchema.CallToolResult result =
-                        mcpClientService.callTool(server, toolCall.name(), arguments);
+                        mcpClientService.callToolAsync(server.getServerId(), toolCall.name(), arguments)
+                                .block(java.time.Duration.ofSeconds(30));
 
                 if (result == null) {
                     log.debug("Tool '{}' returned null result on server '{}'",

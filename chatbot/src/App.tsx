@@ -11,10 +11,10 @@ import "./App.css";
 import ChatHistory from "./components/ChatHistory";
 import ChatInput, { type ChatInputHandle } from "./components/ChatInput";
 import ChatSidebar from "./components/ChatSidebar";
+import { McpCapabilitiesPanel } from "./components/McpCapabilitiesPanel";
 import Modal from "./components/Modal";
 import N8nPanel from "./components/N8nPanel";
 import SettingsPanel from "./components/SettingsPanel";
-import { McpCapabilitiesPanel } from "./components/McpCapabilitiesPanel";
 import {
     disconnectMcpSession,
     ensureMcpSession,
@@ -375,6 +375,12 @@ function ChatLayout() {
       return;
     }
 
+    if (activeServer.transport === "SSE") {
+      // Backend handles lifecycle for SSE transports; avoid opening a local MCP client
+      void disconnectMcpSession(activeServerId);
+      return;
+    }
+
     let cancelled = false;
     void setServerStatus(activeServerId, "connecting");
 
@@ -468,18 +474,18 @@ function ChatLayout() {
           transport: server.transport,
         });
         setActiveServer(serverId);
-        void setServerStatus(serverId, "idle");
+        // Status wird bereits von registerServer gesetzt (idle) und vom Event-Listener aktualisiert
+        // void setServerStatus(serverId, "idle"); // ← ENTFERNT: Verursacht doppelten Update-Request!
       } catch (error) {
         console.error("Failed to register MCP server", error);
         const errorMessage = error instanceof Error ? error.message : "Unknown error";
         // Show error to user
-        if (serverId) {
-          void setServerStatus(serverId, "error");
-        }
+        // Wenn registerServer fehlschlägt, ist serverId undefined
+        // Status-Updates erfolgen über SSE vom Backend
         alert(`Failed to register MCP server '${name}': ${errorMessage}`);
       }
     },
-    [registerServer, servers.length, setActiveServer, setServerStatus],
+    [registerServer, servers.length, setActiveServer],
   );
 
   const handleRemoveServer = useCallback(
@@ -621,6 +627,15 @@ function ChatLayout() {
 }
 
 function App() {
+  const disconnectFromStatusStream = useMcpServerStore((state) => state.disconnectFromStatusStream);
+  
+  // Cleanup SSE connection on app unmount
+  useEffect(() => {
+    return () => {
+      disconnectFromStatusStream();
+    };
+  }, [disconnectFromStatusStream]);
+  
   return (
     <Routes>
       <Route path="/" element={<ChatLayout />}>
