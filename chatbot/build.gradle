@@ -1,0 +1,86 @@
+plugins {
+    id 'base'
+    id 'com.bmuschko.docker-remote-api' version '9.4.0'
+}
+
+import com.bmuschko.gradle.docker.tasks.image.DockerBuildImage
+import com.bmuschko.gradle.docker.tasks.image.DockerPushImage
+import com.bmuschko.gradle.docker.tasks.image.DockerRemoveImage
+
+group = 'app.chatbot'
+version = '0.0.1-SNAPSHOT'
+
+// Node/NPM tasks
+task npmInstall(type: Exec) {
+    group = 'build'
+    description = 'Installs npm dependencies'
+    
+    commandLine 'npm', 'install'
+    
+    inputs.file('package.json')
+    inputs.file('package-lock.json')
+    outputs.dir('node_modules')
+}
+
+task npmBuild(type: Exec) {
+    group = 'build'
+    description = 'Builds the React application'
+    
+    dependsOn npmInstall
+    commandLine 'npm', 'run', 'build'
+    
+    inputs.dir('src')
+    inputs.file('index.html')
+    inputs.file('vite.config.ts')
+    inputs.file('tsconfig.json')
+    outputs.dir('dist')
+}
+
+task npmTest(type: Exec) {
+    group = 'verification'
+    description = 'Runs npm tests'
+    
+    dependsOn npmInstall
+    commandLine 'npm', 'run', 'test'
+}
+
+task npmClean(type: Delete) {
+    group = 'build'
+    description = 'Cleans build artifacts'
+    
+    delete 'dist'
+    delete 'node_modules'
+}
+
+// Docker tasks
+task buildDockerImage(type: DockerBuildImage) {
+    group = 'docker'
+    description = 'Builds Docker image for frontend'
+    
+    dependsOn npmBuild
+    
+    inputDir = file('.')
+    images.add("${project.group}/chatbot-frontend:${project.version}")
+    images.add("${project.group}/chatbot-frontend:latest")
+}
+
+task pushDockerImage(type: DockerPushImage) {
+    group = 'docker'
+    description = 'Pushes Docker image to registry'
+    
+    dependsOn buildDockerImage
+    images.add("${project.group}/chatbot-frontend:${project.version}")
+    images.add("${project.group}/chatbot-frontend:latest")
+}
+
+task removeDockerImage(type: DockerRemoveImage) {
+    group = 'docker'
+    description = 'Removes local Docker image'
+    
+    targetImageId "${project.group}/chatbot-frontend:${project.version}"
+}
+
+// Lifecycle tasks
+build.dependsOn npmBuild
+clean.dependsOn npmClean
+check.dependsOn npmTest

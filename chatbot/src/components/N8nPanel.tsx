@@ -1,9 +1,8 @@
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
-  useN8nStore,
-  type BackendN8nConnectionRequest,
+    useN8nStore,
+    type BackendN8nConnectionRequest,
 } from "../store/n8nStore";
 
 function formatDate(timestamp?: number | null) {
@@ -13,8 +12,11 @@ function formatDate(timestamp?: number | null) {
   return new Date(timestamp).toLocaleString();
 }
 
-function N8nPanel() {
-  const navigate = useNavigate();
+interface N8nPanelProps {
+  onClose?: () => void;
+}
+
+function N8nPanel({ onClose }: N8nPanelProps) {
   const baseUrl = useN8nStore((state) => state.baseUrl);
   const configured = useN8nStore((state) => state.configured);
   const updatedAt = useN8nStore((state) => state.updatedAt);
@@ -100,9 +102,11 @@ function N8nPanel() {
           <h2>n8n Automations</h2>
           <p>Connect your n8n instance to manage workflows alongside your chats.</p>
         </div>
-        <button type="button" className="secondary" onClick={() => navigate("/")}>
-          Back to chats
-        </button>
+        {onClose && (
+          <button type="button" className="secondary" onClick={onClose}>
+            Close
+          </button>
+        )}
       </header>
 
       <div className="n8n-grid">

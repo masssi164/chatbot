@@ -9,9 +9,12 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.event.ContextClosedEvent;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
+import org.springframework.web.reactive.function.client.WebClient;
 
 import app.chatbot.mcp.config.McpProperties;
 import app.chatbot.security.SecretEncryptor;
@@ -19,16 +22,13 @@ import io.modelcontextprotocol.client.McpAsyncClient;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.client.transport.WebFluxSseClientTransport;
-import io.modelcontextprotocol.spec.McpClientTransport;
 import io.modelcontextprotocol.json.McpJsonMapper;
+import io.modelcontextprotocol.spec.McpClientTransport;
 import io.modelcontextprotocol.spec.McpSchema;
+import io.netty.handler.timeout.IdleStateHandler;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.client.reactive.ReactorClientHttpConnector;
-import org.springframework.web.reactive.function.client.WebClient;
-import io.netty.handler.timeout.IdleStateHandler;
 
 /**
  * Zentrales Session-Management für MCP-Client-Verbindungen.
@@ -134,15 +134,13 @@ public class McpSessionRegistry implements ApplicationListener<ContextClosedEven
         // State is already INITIALIZING (set in SessionHolder constructor)
         // No need to check/set again
         
-        return Mono.fromSupplier(() -> serverRepository.findByServerId(holder.serverId))
-            .flatMap(serverOpt -> serverOpt
-                .map(Mono::just)
-                .orElseGet(() -> Mono.error(new McpClientException(
-                    "MCP server not found: " + holder.serverId))))
+        return serverRepository.findByServerId(holder.serverId)
+            .switchIfEmpty(Mono.error(new McpClientException(
+                "MCP server not found: " + holder.serverId)))
             .flatMap(server -> {
                 try {
                     System.err.println("🚨 initializeSession: serverId=" + server.getServerId() + 
-                        ", baseUrl=" + server.getBaseUrl() + ", transport=" + server.getTransport());
+                        ", baseUrl=" + server.getBaseUrl() + ", transport=" + server.getTransportEnum());
                     
                     String decryptedApiKey = decryptApiKey(server);
                     
@@ -150,10 +148,10 @@ public class McpSessionRegistry implements ApplicationListener<ContextClosedEven
                     // This ensures we connect to the exact URL provided by the user
                     String targetUrl = server.getBaseUrl();
                     log.info("🔗 MCP Connection Attempt - Server: {}, Transport: {}, Target URL: '{}'", 
-                        server.getServerId(), server.getTransport(), targetUrl);
+                        server.getServerId(), server.getTransportEnum(), targetUrl);
                     
                     McpClientTransport transport = createTransport(targetUrl, decryptedApiKey, 
-                        server.getTransport());
+                        server.getTransportEnum());
                     
                     System.err.println("🎉 Transport created successfully!");
 
@@ -168,7 +166,7 @@ public class McpSessionRegistry implements ApplicationListener<ContextClosedEven
                         .build();
 
                     log.info("🚀 Initializing MCP async client for server {} using {} transport",
-                        server.getServerId(), server.getTransport());
+                        server.getServerId(), server.getTransportEnum());
 
                     return client.initialize()
                         .doOnSuccess(result -> {

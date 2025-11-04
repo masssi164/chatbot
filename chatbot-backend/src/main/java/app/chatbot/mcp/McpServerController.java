@@ -1,6 +1,5 @@
 package app.chatbot.mcp;
 
-import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -17,7 +16,6 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
-import app.chatbot.mcp.dto.McpCapabilitiesDto;
 import app.chatbot.mcp.dto.McpConnectionStatusDto;
 import app.chatbot.mcp.dto.McpServerDto;
 import app.chatbot.mcp.dto.McpServerRequest;
@@ -26,6 +24,8 @@ import app.chatbot.mcp.events.McpServerUpdatedEvent;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 /**
  * REST Controller für MCP Server Management.
@@ -53,97 +53,100 @@ public class McpServerController {
     private final ConcurrentHashMap<String, Lock> serverLocks = new ConcurrentHashMap<>();
 
     @GetMapping
-    public List<McpServerDto> listServers() {
+    public Flux<McpServerDto> listServers() {
         log.debug("Listing MCP servers");
         return service.listServers();
     }
 
     @GetMapping("/{serverId}")
-    public McpServerDto getServer(@PathVariable("serverId") String serverId) {
+    public Mono<McpServerDto> getServer(@PathVariable("serverId") String serverId) {
         log.debug("Fetching MCP server {}", serverId);
         return service.getServer(serverId);
     }
 
     @PostMapping
     @ResponseStatus(org.springframework.http.HttpStatus.ACCEPTED) // 202 Accepted
-    public McpServerDto createOrUpdate(@Valid @RequestBody McpServerRequest request) {
+    public Mono<McpServerDto> createOrUpdate(@Valid @RequestBody McpServerRequest request) {
+        log.info("📥 POST /api/mcp-servers - Received request: serverId={}, name={}, baseUrl={}, transport={}", 
+                 request.serverId(), request.name(), request.baseUrl(), request.transport());
+        
         String serverId = request.serverId() != null ? request.serverId() : "new-server";
         
         // Deduplizierung: Lock holen für diesen serverId
         Lock lock = serverLocks.computeIfAbsent(serverId, k -> new ReentrantLock());
         
-        lock.lock();
-        try {
+        return Mono.fromCallable(() -> {
+            lock.lock();
+            log.debug("🔒 Lock acquired for serverId: {}", serverId);
+            return lock;
+        })
+        .flatMap(acquiredLock -> {
             log.debug("Creating or updating MCP server {} (locked)", serverId);
             
             // 1. Synchrones DB-Update (schnell, <100ms)
-            McpServerDto dto = service.createOrUpdate(request);
-            
-            // 2. Event publishen → Async Connection läuft im Background
-            log.info("Publishing McpServerUpdatedEvent for server {}", dto.serverId());
-            eventPublisher.publishEvent(new McpServerUpdatedEvent(dto.serverId()));
-            
-            return dto; // Sofort zurück, Connection läuft async
-        } finally {
-            lock.unlock();
-        }
+            return service.createOrUpdate(request)
+                    .doOnNext(dto -> {
+                        // 2. Event publishen → Async Connection läuft im Background
+                        log.info("📤 Publishing McpServerUpdatedEvent for server {}", dto.serverId());
+                        eventPublisher.publishEvent(new McpServerUpdatedEvent(dto.serverId()));
+                    })
+                    .doFinally(signal -> {
+                        acquiredLock.unlock();
+                        log.debug("🔓 Lock released for serverId: {}", serverId);
+                    });
+        })
+        .doOnError(error -> log.error("❌ Error creating/updating MCP server: {}", error.getMessage(), error));
     }
 
     @PutMapping("/{serverId}")
     @ResponseStatus(org.springframework.http.HttpStatus.ACCEPTED) // 202 Accepted
-    public McpServerDto update(@PathVariable("serverId") String serverId,
+    public Mono<McpServerDto> update(@PathVariable("serverId") String serverId,
                                @Valid @RequestBody McpServerRequest request) {
         // Deduplizierung: Lock holen für diesen serverId
         Lock lock = serverLocks.computeIfAbsent(serverId, k -> new ReentrantLock());
         
-        lock.lock();
-        try {
+        return Mono.fromCallable(() -> {
+            lock.lock();
+            return lock;
+        })
+        .flatMap(acquiredLock -> {
             log.debug("Updating MCP server {} (locked)", serverId);
             
             // 1. Synchrones DB-Update (schnell, <100ms)
-            McpServerDto dto = service.update(serverId, request);
-            
-            // 2. Event publishen → Async Connection läuft im Background
-            log.info("Publishing McpServerUpdatedEvent for server {}", serverId);
-            eventPublisher.publishEvent(new McpServerUpdatedEvent(serverId));
-            
-            return dto; // Sofort zurück, Connection läuft async
-        } finally {
-            lock.unlock();
-        }
+            return service.update(serverId, request)
+                    .doOnNext(dto -> {
+                        // 2. Event publishen → Async Connection läuft im Background
+                        log.info("Publishing McpServerUpdatedEvent for server {}", serverId);
+                        eventPublisher.publishEvent(new McpServerUpdatedEvent(serverId));
+                    })
+                    .doFinally(signal -> acquiredLock.unlock());
+        });
     }
 
     @DeleteMapping("/{serverId}")
     @ResponseStatus(org.springframework.http.HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable("serverId") String serverId) {
+    public Mono<Void> delete(@PathVariable("serverId") String serverId) {
         log.debug("Deleting MCP server {}", serverId);
-        service.delete(serverId);
+        return service.delete(serverId);
     }
 
     @PostMapping("/{serverId}/verify")
-    public McpConnectionStatusDto verifyConnection(@PathVariable("serverId") String serverId) {
+    public Mono<McpConnectionStatusDto> verifyConnection(@PathVariable("serverId") String serverId) {
         log.debug("Verifying connection to MCP server {}", serverId);
-        try {
-            return service.verifyConnection(serverId);
-        } catch (ResponseStatusException ex) {
-            log.warn("Verify connection request for server {} failed with status {} and reason {}",
-                    serverId, ex.getStatusCode(), ex.getReason(), ex);
-            throw ex;
-        } catch (Exception ex) {
-            log.error("Unexpected error during verify request for server {}", serverId, ex);
-            throw ex;
-        }
-    }
-
-    @GetMapping("/{serverId}/capabilities")
-    public McpCapabilitiesDto getCapabilities(@PathVariable("serverId") String serverId) {
-        log.debug("Getting capabilities for MCP server {}", serverId);
-        return service.getCapabilities(serverId);
+        return service.verifyConnectionAsync(serverId)
+                .doOnError(ex -> {
+                    if (ex instanceof ResponseStatusException rse) {
+                        log.warn("Verify connection request for server {} failed with status {} and reason {}",
+                                serverId, rse.getStatusCode(), rse.getReason(), rse);
+                    } else {
+                        log.error("Unexpected error during verify request for server {}", serverId, ex);
+                    }
+                });
     }
 
     @PostMapping("/{serverId}/sync")
-    public SyncStatusDto syncCapabilities(@PathVariable("serverId") String serverId) {
+    public Mono<SyncStatusDto> syncCapabilities(@PathVariable("serverId") String serverId) {
         log.debug("Triggering capabilities sync for MCP server {}", serverId);
-        return service.syncCapabilitiesBlocking(serverId);
+        return service.sync(serverId);
     }
 }

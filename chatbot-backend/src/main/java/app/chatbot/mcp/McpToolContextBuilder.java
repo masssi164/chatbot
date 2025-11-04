@@ -11,9 +11,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
-import io.modelcontextprotocol.spec.McpSchema;
 import app.chatbot.security.EncryptionException;
 import app.chatbot.security.SecretEncryptor;
+import io.modelcontextprotocol.spec.McpSchema;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -61,12 +61,12 @@ public class McpToolContextBuilder {
 
         // Finde alle CONNECTED Server mit gültigem Sync-Status (Cache kann veraltet sein)
         List<McpServer> servers = repository.findAll()
-                .stream()
-                .filter(server -> server.getStatus() == McpServerStatus.CONNECTED)
-                .filter(server -> server.getSyncStatus() == SyncStatus.SYNCED)
-                .toList();
+                .filter(server -> server.getStatusEnum() == McpServerStatus.CONNECTED)
+                .filter(server -> server.getSyncStatusEnum() == SyncStatus.SYNCED)
+                .collectList()
+                .block(); // OK here - synchronous method for building context
 
-        if (servers.isEmpty()) {
+        if (servers == null || servers.isEmpty()) {
             log.debug("No connected MCP servers available");
             return;
         }
@@ -147,8 +147,8 @@ public class McpToolContextBuilder {
             server.setResourcesCache(resourcesJson);
             server.setPromptsCache(promptsJson);
             server.setLastSyncedAt(Instant.now());
-            server.setSyncStatus(SyncStatus.SYNCED);
-            repository.save(server);
+            server.setSyncStatusEnum(SyncStatus.SYNCED);
+            repository.save(server).block(); // OK - synchronous refresh method
             return true;
         } catch (Exception ex) {
             log.warn("Failed to refresh cached capabilities for server {}: {}", server.getServerId(), ex.getMessage());

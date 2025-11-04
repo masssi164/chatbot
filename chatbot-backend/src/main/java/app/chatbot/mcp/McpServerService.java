@@ -7,11 +7,9 @@ import java.util.UUID;
 
 import static org.springframework.http.HttpStatus.NOT_FOUND;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.server.ResponseStatusException;
 
-import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -25,6 +23,7 @@ import app.chatbot.utils.GenericMapper;
 import io.modelcontextprotocol.spec.McpSchema;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 @Service
@@ -40,65 +39,67 @@ public class McpServerService {
     private final ObjectMapper objectMapper;
     private final McpServerStatusPublisher statusPublisher;
 
-    @Transactional(readOnly = true)
-    public List<McpServerDto> listServers() {
-        return repository.findAll().stream()
-                .sorted((a, b) -> b.getLastUpdated().compareTo(a.getLastUpdated()))
-                .map(this::toDto)
-                .toList();
+    public Flux<McpServerDto> listServers() {
+        return repository.findAll()
+                .sort((a, b) -> b.getLastUpdated().compareTo(a.getLastUpdated()))
+                .map(this::toDto);
     }
 
-    @Transactional(readOnly = true)
-    public McpServerDto getServer(String serverId) {
+    public Mono<McpServerDto> getServer(String serverId) {
         return repository.findByServerId(serverId)
                 .map(this::toDto)
-                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "MCP server not found"));
+                .switchIfEmpty(Mono.error(new ResponseStatusException(NOT_FOUND, "MCP server not found")));
     }
 
-    @Transactional
-    public McpServerDto createOrUpdate(McpServerRequest request) {
+    public Mono<McpServerDto> createOrUpdate(McpServerRequest request) {
+        log.info("Creating/updating MCP server: name={}, baseUrl={}, transport={}", 
+                 request.name(), request.baseUrl(), request.transport());
+        
         String requestedId = StringUtils.hasText(request.serverId()) ? request.serverId().trim() : null;
 
-        McpServer server = requestedId != null
-                ? repository.findByServerId(requestedId).orElse(null)
-                : null;
+        Mono<McpServer> serverMono = requestedId != null
+                ? repository.findByServerId(requestedId).defaultIfEmpty(new McpServer())
+                : Mono.just(new McpServer());
 
-        if (server == null) {
-            server = new McpServer();
-            server.setServerId(requestedId != null ? requestedId : generateServerId());
-        }
-
-        applyUpdates(server, request);
-        McpServer saved = repository.save(server);
-        // Session stays open - will be closed only on delete or app shutdown
-        return toDto(saved);
+        return serverMono.flatMap(server -> {
+            if (server.getServerId() == null) {
+                String newId = requestedId != null ? requestedId : generateServerId();
+                server.setServerId(newId);
+                log.info("Assigning new serverId: {}", newId);
+            }
+            applyUpdates(server, request);
+            return repository.save(server);
+        }).map(saved -> {
+            log.info("Successfully saved MCP server: serverId={}, status={}", 
+                     saved.getServerId(), saved.getStatusEnum());
+            return toDto(saved);
+        });
     }
 
-    @Transactional
-    public McpServerDto update(String serverId, McpServerRequest request) {
+    public Mono<McpServerDto> update(String serverId, McpServerRequest request) {
         // Event-Driven: Optimistic Locking ist OK, da schnell (<100ms)
         // Connection läuft async via Event → Keine Race Conditions
-        McpServer server = repository.findByServerId(serverId)
-                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "MCP server not found"));
-
-        applyUpdates(server, request);
-        McpServer saved = repository.save(server);
-        // Session stays open - will be closed by delete() or on app shutdown
-        return toDto(saved);
+        return repository.findByServerId(serverId)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(NOT_FOUND, "MCP server not found")))
+                .flatMap(server -> {
+                    applyUpdates(server, request);
+                    return repository.save(server);
+                })
+                .map(this::toDto);
     }
 
-    @Transactional
-    public void deleteServer(String serverId) {
-        McpServer server = repository.findByServerId(serverId)
-                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "MCP server not found"));
-        mcpClientService.closeConnection(server.getServerId());
-        repository.delete(server);
+    public Mono<Void> deleteServer(String serverId) {
+        return repository.findByServerId(serverId)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(NOT_FOUND, "MCP server not found")))
+                .flatMap(server -> {
+                    mcpClientService.closeConnection(server.getServerId());
+                    return repository.delete(server);
+                });
     }
 
-    @Transactional
-    public void delete(String serverId) {
+    public Mono<Void> delete(String serverId) {
         mcpClientService.closeConnection(serverId);
-        repository.deleteByServerId(serverId);
+        return repository.deleteByServerId(serverId);
     }
 
     private void applyUpdates(McpServer server, McpServerRequest request) {
@@ -120,11 +121,11 @@ public class McpServerService {
         }
 
         if (request.status() != null) {
-            server.setStatus(request.status());
+            server.setStatusEnum(request.status());
         }
         
         if (request.transport() != null) {
-            server.setTransport(request.transport());
+            server.setTransportEnum(request.transport());
         }
         
         server.setLastUpdated(Instant.now());
@@ -139,13 +140,12 @@ public class McpServerService {
                 server.getName(),
                 server.getBaseUrl(),
                 hasApiKey,
-                server.getStatus(),
-                server.getTransport(),
+                server.getStatusEnum(),
+                server.getTransportEnum(),
                 server.getLastUpdated()
         );
     }
 
-    @Transactional
     public McpConnectionStatusDto verifyConnection(String serverId) {
         return verifyConnectionAsync(serverId)
             .onErrorResume(error -> {
@@ -183,11 +183,9 @@ public class McpServerService {
      * @return Mono mit Connection-Status DTO
      */
     public Mono<McpConnectionStatusDto> verifyConnectionAsync(String serverId) {
-        return Mono.fromSupplier(() -> repository.findByServerId(serverId))
-            .flatMap(serverOpt -> serverOpt
-                .map(Mono::just)
-                .orElseGet(() -> Mono.error(new ResponseStatusException(NOT_FOUND, 
-                    "MCP server not found: " + serverId))))
+        return repository.findByServerId(serverId)
+            .switchIfEmpty(Mono.error(new ResponseStatusException(NOT_FOUND, 
+                "MCP server not found: " + serverId)))
             .flatMap(server -> {
                 // Decrypt API key
                 String decryptedApiKey = null;
@@ -245,14 +243,12 @@ public class McpServerService {
     public Mono<McpServer> syncCapabilitiesAsync(String serverId) {
         log.info("Starting capabilities sync for server {}", serverId);
         
-        return Mono.fromSupplier(() -> repository.findByServerId(serverId))
-            .flatMap(serverOpt -> serverOpt
-                .map(Mono::just)
-                .orElseGet(() -> Mono.error(new ResponseStatusException(NOT_FOUND, 
-                    "MCP server not found: " + serverId))))
+        return repository.findByServerId(serverId)
+            .switchIfEmpty(Mono.error(new ResponseStatusException(NOT_FOUND, 
+                "MCP server not found: " + serverId)))
             .flatMap(server -> {
                 // Update sync status to SYNCING
-                return updateServerWithRetry(serverId, s -> s.setSyncStatus(SyncStatus.SYNCING))
+                return updateServerWithRetry(serverId, s -> s.setSyncStatusEnum(SyncStatus.SYNCING))
                     .then(sessionRegistry.getOrCreateSession(serverId))
                     .flatMap(client -> Mono.zip(
                         client.listTools().onErrorResume(e -> {
@@ -285,7 +281,7 @@ public class McpServerService {
                                 s.setResourcesCache(resourcesJson);
                                 s.setPromptsCache(promptsJson);
                                 s.setLastSyncedAt(Instant.now());
-                                s.setSyncStatus(SyncStatus.SYNCED);
+                                s.setSyncStatusEnum(SyncStatus.SYNCED);
                             });
                         } catch (JsonProcessingException ex) {
                             log.error("Failed to serialize capabilities for server {}", serverId, ex);
@@ -296,7 +292,7 @@ public class McpServerService {
                     .doOnSuccess(s -> log.info("Successfully synced capabilities for server {}", serverId))
                     .onErrorResume(error -> {
                         log.error("Sync failed for server {}: {}", serverId, error.getMessage());
-                        return updateServerWithRetry(serverId, s -> s.setSyncStatus(SyncStatus.SYNC_FAILED))
+                        return updateServerWithRetry(serverId, s -> s.setSyncStatusEnum(SyncStatus.SYNC_FAILED))
                             .then(Mono.error(error));
                     });
             })
@@ -317,16 +313,12 @@ public class McpServerService {
         }
 
         return updateServerWithRetry(serverId, entity -> {
-            entity.setStatus(newStatus);
+            entity.setStatusEnum(newStatus);
             entity.setLastUpdated(Instant.now());
         })
         .doOnSuccess(updated -> {
-            server.setStatus(updated.getStatus());
+            server.setStatusEnum(updated.getStatusEnum());
             server.setLastUpdated(updated.getLastUpdated());
-        })
-        .onErrorResume(ObjectOptimisticLockingFailureException.class, ex -> {
-            log.warn("Optimistic lock conflict while updating status for server {} – keeping existing value", serverId, ex);
-            return Mono.empty();
         })
         .then();
     }
@@ -343,223 +335,117 @@ public class McpServerService {
      */
     private Mono<McpServer> updateServerWithRetry(String serverId,
                                                    java.util.function.Consumer<McpServer> updateFn) {
-        final int maxAttempts = 3;
-        return Mono.fromCallable(() -> {
-            int attempt = 0;
-            while (true) {
-                try {
-                    McpServer server = repository.findByServerId(serverId)
-                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND,
-                            "MCP server not found: " + serverId));
-                    updateFn.accept(server);
-                    return repository.save(server);
-                } catch (ObjectOptimisticLockingFailureException ex) {
-                    attempt++;
-                    log.debug("Optimistic locking conflict while updating server {} (attempt {}/{})",
-                            serverId, attempt, maxAttempts);
-                    if (attempt >= maxAttempts) {
-                        throw ex;
-                    }
-                    try {
-                        Thread.sleep(25L * attempt);
-                    } catch (InterruptedException interrupted) {
-                        Thread.currentThread().interrupt();
-                        throw new IllegalStateException("Interrupted during optimistic lock retry", interrupted);
-                    }
-                }
-            }
-        });
+        return repository.findByServerId(serverId)
+            .switchIfEmpty(Mono.error(new ResponseStatusException(NOT_FOUND,
+                "MCP server not found: " + serverId)))
+            .flatMap(server -> {
+                updateFn.accept(server);
+                return repository.save(server);
+            })
+            .retry(3);
     }
 
     // ===== Public API Methods (Blocking for REST Controllers) =====
 
     /**
-     * Holt Capabilities aus DB Cache (TTL: 5 Min). Falls expired → live fetch.
+     * Triggert manuellen Sync (reactive für REST Endpoint).
      * 
-     * @param serverId Die Server-ID
-     * @return Capabilities DTO
+     * @param serverId Server ID
+     * @return Mono mit Sync Status DTO
      */
-    public app.chatbot.mcp.dto.McpCapabilitiesDto getCapabilities(String serverId) {
-        McpServer server = repository.findByServerId(serverId)
-                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "MCP server not found"));
-
-        // Prüfe Cache-TTL (5 Minuten)
-        if (server.getLastSyncedAt() != null 
-            && Duration.between(server.getLastSyncedAt(), Instant.now()).toMinutes() < 5
-            && server.getSyncStatus() == SyncStatus.SYNCED) {
-            
-            // Cache noch gültig → deserialisiere aus DB
-            try {
-                List<McpSchema.Tool> tools = objectMapper.readValue(
-                    server.getToolsCache() != null ? server.getToolsCache() : "[]",
-                    new com.fasterxml.jackson.core.type.TypeReference<List<McpSchema.Tool>>() {});
-                List<McpSchema.Resource> resources = objectMapper.readValue(
-                    server.getResourcesCache() != null ? server.getResourcesCache() : "[]",
-                    new com.fasterxml.jackson.core.type.TypeReference<List<McpSchema.Resource>>() {});
-                List<McpSchema.Prompt> prompts = objectMapper.readValue(
-                    server.getPromptsCache() != null ? server.getPromptsCache() : "[]",
-                    new com.fasterxml.jackson.core.type.TypeReference<List<McpSchema.Prompt>>() {});
-
-                log.debug("Serving capabilities from cache for server {}", serverId);
-                return new app.chatbot.mcp.dto.McpCapabilitiesDto(
-                    tools,
-                    resources,
-                    prompts,
-                    new app.chatbot.mcp.dto.McpCapabilitiesDto.ServerInfo(server.getName(), "1.0")
-                );
-            } catch (Exception ex) {
-                log.warn("Failed to deserialize cached capabilities for server {}, fetching live", serverId, ex);
-            }
-        }
-
-        // Cache abgelaufen oder ungültig → live fetch mit .block()
-        log.debug("Cache expired for server {}, fetching live capabilities", serverId);
-        McpServer synced = syncCapabilitiesAsync(serverId)
-                .block(Duration.ofSeconds(30));
-        
-        if (synced == null) {
-            throw new IllegalStateException("Sync returned null for server " + serverId);
-        }
-
-        // Nach Sync: Nochmal deserialisieren
-        try {
-            List<McpSchema.Tool> tools = objectMapper.readValue(
-                synced.getToolsCache() != null ? synced.getToolsCache() : "[]",
-                new com.fasterxml.jackson.core.type.TypeReference<List<McpSchema.Tool>>() {});
-            List<McpSchema.Resource> resources = objectMapper.readValue(
-                synced.getResourcesCache() != null ? synced.getResourcesCache() : "[]",
-                new com.fasterxml.jackson.core.type.TypeReference<List<McpSchema.Resource>>() {});
-            List<McpSchema.Prompt> prompts = objectMapper.readValue(
-                synced.getPromptsCache() != null ? synced.getPromptsCache() : "[]",
-                new com.fasterxml.jackson.core.type.TypeReference<List<McpSchema.Prompt>>() {});
-
-            return new app.chatbot.mcp.dto.McpCapabilitiesDto(
-                tools,
-                resources,
-                prompts,
-                new app.chatbot.mcp.dto.McpCapabilitiesDto.ServerInfo(synced.getName(), "1.0")
-            );
-        } catch (Exception ex) {
-            log.error("Failed to deserialize capabilities after sync for server {}", serverId, ex);
-            throw new IllegalStateException("Failed to parse capabilities: " + ex.getMessage(), ex);
-        }
-    }
-
-    /**
-     * Triggert manuellen Sync (blocking für REST Endpoint).
-     * 
-     * @param serverId Die Server-ID
-     * @return Sync-Status DTO
-     */
-    public app.chatbot.mcp.dto.SyncStatusDto syncCapabilitiesBlocking(String serverId) {
-        try {
-            McpServer synced = syncCapabilitiesAsync(serverId)
-                    .block(Duration.ofSeconds(30));
-            
-            if (synced == null) {
-                throw new IllegalStateException("Sync returned null");
-            }
-
-            return new app.chatbot.mcp.dto.SyncStatusDto(
-                synced.getServerId(),
-                synced.getSyncStatus(),
-                synced.getLastSyncedAt(),
-                "Sync completed successfully"
-            );
-        } catch (Exception ex) {
-            log.error("Manual sync failed for server {}", serverId, ex);
-            
-            // Update status to SYNC_FAILED
-            McpServer server = repository.findByServerId(serverId).orElseThrow();
-            server.setSyncStatus(SyncStatus.SYNC_FAILED);
-            repository.save(server);
-
-            return new app.chatbot.mcp.dto.SyncStatusDto(
-                serverId,
-                SyncStatus.SYNC_FAILED,
-                null,
-                "Sync failed: " + ex.getMessage()
-            );
-        }
+    public Mono<app.chatbot.mcp.dto.SyncStatusDto> sync(String serverId) {
+        return syncCapabilitiesAsync(serverId)
+                .timeout(Duration.ofSeconds(30))
+                .map(synced -> new app.chatbot.mcp.dto.SyncStatusDto(
+                    synced.getServerId(),
+                    synced.getSyncStatusEnum(),
+                    synced.getLastSyncedAt(),
+                    "Sync completed successfully"
+                ))
+                .onErrorResume(ex -> {
+                    log.error("Manual sync failed for server {}", serverId, ex);
+                    
+                    // Update status to SYNC_FAILED
+                    return repository.findByServerId(serverId)
+                            .switchIfEmpty(Mono.error(new ResponseStatusException(NOT_FOUND, "Server not found")))
+                            .flatMap(server -> {
+                                server.setSyncStatusEnum(SyncStatus.SYNC_FAILED);
+                                return repository.save(server);
+                            })
+                            .map(server -> new app.chatbot.mcp.dto.SyncStatusDto(
+                                serverId,
+                                SyncStatus.SYNC_FAILED,
+                                null,
+                                "Sync failed: " + ex.getMessage()
+                            ));
+                });
     }
 
     private String generateServerId() {
         return "mcp-" + UUID.randomUUID();
     }
 
-    // ===== Helper Methods mit separaten Transaktionen =====
+    // ===== Helper Methods - Fully Reactive =====
     // (Werden von McpConnectionService.connectAndSync() verwendet)
 
-    /**
-     * Lädt Server und setzt initialen Status (eigene Transaktion).
-     * MUSS public sein damit Spring @Transactional anwenden kann!
-     */
-    @Transactional
-    public McpServer loadAndUpdateStatus(String serverId, McpServerStatus status, SyncStatus syncStatus) {
-        McpServer server = repository.findByServerId(serverId)
-                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "MCP server not found: " + serverId));
-        server.setStatus(status);
-        server.setSyncStatus(syncStatus);
-        return repository.save(server);
+    public Mono<McpServer> loadAndUpdateStatus(String serverId, McpServerStatus status, SyncStatus syncStatus) {
+        return repository.findByServerId(serverId)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(NOT_FOUND, "MCP server not found: " + serverId)))
+                .flatMap(server -> {
+                    server.setStatusEnum(status);
+                    server.setSyncStatusEnum(syncStatus);
+                    return repository.save(server);
+                });
     }
 
-    /**
-     * Updated Server Status in separater kurzer Transaktion.
-     * MUSS public sein damit Spring @Transactional anwenden kann!
-     */
-    @Transactional
-    public McpServer updateServerStatus(String serverId, McpServerStatus status, SyncStatus syncStatus) {
-        McpServer server = repository.findByServerId(serverId)
-                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "MCP server not found: " + serverId));
-        server.setStatus(status);
-        if (syncStatus != null) {
-            server.setSyncStatus(syncStatus);
-        }
-        return repository.save(server);
+    public Mono<McpServer> updateServerStatus(String serverId, McpServerStatus status, SyncStatus syncStatus) {
+        return repository.findByServerId(serverId)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(NOT_FOUND, "MCP server not found: " + serverId)))
+                .flatMap(server -> {
+                    server.setStatusEnum(status);
+                    if (syncStatus != null) {
+                        server.setSyncStatusEnum(syncStatus);
+                    }
+                    return repository.save(server);
+                });
     }
 
-    /**
-     * Speichert Capabilities und markiert als SYNCED (eigene Transaktion).
-     * MUSS public sein damit Spring @Transactional anwenden kann!
-     */
-    @Transactional
-    public McpServer saveCapabilitiesAndMarkSynced(String serverId, String toolsJson, 
+    public Mono<McpServer> saveCapabilitiesAndMarkSynced(String serverId, String toolsJson, 
                                                       String resourcesJson, String promptsJson) {
-        McpServer server = repository.findByServerId(serverId)
-                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "MCP server not found: " + serverId));
-        server.setToolsCache(toolsJson);
-        server.setResourcesCache(resourcesJson);
-        server.setPromptsCache(promptsJson);
-        server.setLastSyncedAt(Instant.now());
-        server.setSyncStatus(SyncStatus.SYNCED);
-        return repository.save(server);
+        return repository.findByServerId(serverId)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(NOT_FOUND, "MCP server not found: " + serverId)))
+                .flatMap(server -> {
+                    server.setToolsCache(toolsJson);
+                    server.setResourcesCache(resourcesJson);
+                    server.setPromptsCache(promptsJson);
+                    server.setLastSyncedAt(Instant.now());
+                    server.setSyncStatusEnum(SyncStatus.SYNCED);
+                    return repository.save(server);
+                });
     }
 
-    /**
-     * Setzt Status auf ERROR (eigene Transaktion).
-     * MUSS public sein damit Spring @Transactional anwenden kann!
-     */
-    @Transactional
-    public void updateServerToError(String serverId, String message) {
-        repository.findByServerId(serverId).ifPresent(server -> {
-            server.setStatus(McpServerStatus.ERROR);
-            repository.save(server);
-            statusPublisher.publishStatusUpdate(serverId, server.getName(), 
-                    McpServerStatus.ERROR, server.getSyncStatus(), message);
-        });
+    public Mono<Void> updateServerToError(String serverId, String message) {
+        return repository.findByServerId(serverId)
+                .flatMap(server -> {
+                    server.setStatusEnum(McpServerStatus.ERROR);
+                    return repository.save(server).then(Mono.fromRunnable(() ->
+                        statusPublisher.publishStatusUpdate(serverId, server.getName(), 
+                                McpServerStatus.ERROR, server.getSyncStatusEnum(), message)
+                    ));
+                })
+                .then();
     }
 
-    /**
-     * Setzt Status auf SYNC_FAILED (eigene Transaktion).
-     * MUSS public sein damit Spring @Transactional anwenden kann!
-     */
-    @Transactional
-    public void updateServerToSyncFailed(String serverId, String message) {
-        repository.findByServerId(serverId).ifPresent(server -> {
-            server.setSyncStatus(SyncStatus.SYNC_FAILED);
-            repository.save(server);
-            statusPublisher.publishStatusUpdate(serverId, server.getName(), 
-                    server.getStatus(), SyncStatus.SYNC_FAILED, message);
-        });
+    public Mono<Void> updateServerToSyncFailed(String serverId, String message) {
+        return repository.findByServerId(serverId)
+                .flatMap(server -> {
+                    server.setSyncStatusEnum(SyncStatus.SYNC_FAILED);
+                    return repository.save(server).then(Mono.fromRunnable(() ->
+                        statusPublisher.publishStatusUpdate(serverId, server.getName(), 
+                                server.getStatusEnum(), SyncStatus.SYNC_FAILED, message)
+                    ));
+                })
+                .then();
     }
 }
+

@@ -1,19 +1,29 @@
 import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
-import type { ChatMessage } from '../store/chatStore'
+import type { ChatMessage, ToolCallState } from '../store/chatStore'
 import { formatTimestamp } from '../utils/format'
 
 interface ChatHistoryProps {
   messages: ChatMessage[]
+  toolCalls: ToolCallState[]
   isLoading: boolean
 }
 
-export function ChatHistory({ messages, isLoading }: ChatHistoryProps) {
+export function ChatHistory({ messages, toolCalls, isLoading }: ChatHistoryProps) {
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
   const [copyError, setCopyError] = useState<string | null>(null)
   const [expandedToolCalls, setExpandedToolCalls] = useState<Set<string>>(new Set())
   const [liveRegionMessage, setLiveRegionMessage] = useState<string>('')
+
+  // Helper to get tool calls for a specific message
+  const getToolCallsForMessage = (messageId: string) => {
+    return toolCalls.filter(tc => 
+      messages.find(m => m.id === messageId && m.outputIndex !== null && 
+                    tc.outputIndex !== null && tc.outputIndex !== undefined && 
+                    m.outputIndex === tc.outputIndex - 1)
+    )
+  }
 
   const toggleToolCalls = (messageId: string) => {
     setExpandedToolCalls(prev => {
@@ -115,46 +125,59 @@ export function ChatHistory({ messages, isLoading }: ChatHistoryProps) {
           </div>
           
           {/* Tool Call Badge */}
-          {message.toolCalls && message.toolCalls.length > 0 && (
-            <button
-              type="button"
-              className="tool-call-badge"
-              onClick={() => toggleToolCalls(message.id)}
-              aria-expanded={expandedToolCalls.has(message.id)}
-              aria-label={`${expandedToolCalls.has(message.id) ? 'Hide' : 'Show'} ${message.toolCalls.length} tool execution${message.toolCalls.length > 1 ? 's' : ''}`}
-            >
-              <span className="tool-icon" aria-hidden="true">🔧</span>
-              <span className="tool-count">
-                Executed {message.toolCalls.length} tool{message.toolCalls.length > 1 ? 's' : ''}
-              </span>
-              <span className="expand-icon" aria-hidden="true">{expandedToolCalls.has(message.id) ? '▼' : '▶'}</span>
-            </button>
-          )}
+          {(() => {
+            const msgToolCalls = getToolCallsForMessage(message.id)
+            return msgToolCalls.length > 0 && (
+              <button
+                type="button"
+                className="tool-call-badge"
+                onClick={() => toggleToolCalls(message.id)}
+                aria-expanded={expandedToolCalls.has(message.id)}
+                aria-label={`${expandedToolCalls.has(message.id) ? 'Hide' : 'Show'} ${msgToolCalls.length} tool execution${msgToolCalls.length > 1 ? 's' : ''}`}
+              >
+                <span className="tool-icon" aria-hidden="true">🔧</span>
+                <span className="tool-count">
+                  Executed {msgToolCalls.length} tool{msgToolCalls.length > 1 ? 's' : ''}
+                </span>
+                <span className="expand-icon" aria-hidden="true">{expandedToolCalls.has(message.id) ? '▼' : '▶'}</span>
+              </button>
+            )
+          })()}
           
           {/* Expandable Tool Call Details */}
-          {message.toolCalls && expandedToolCalls.has(message.id) && (
-            <div className="tool-call-details" role="region" aria-label="Tool execution details">
-              {message.toolCalls.map((tool) => (
-                <div key={`${message.id}-${tool.toolName}-${tool.server}`} className={`tool-call-item ${tool.success ? 'success' : 'error'}`}>
-                  <div className="tool-call-header">
-                    <span className="tool-name">{tool.toolName}</span>
-                    <span className="tool-status" aria-label={tool.success ? 'Success' : 'Error'}>
-                      {tool.success ? '✓' : '✗'}
-                    </span>
+          {(() => {
+            const msgToolCalls = getToolCallsForMessage(message.id)
+            return expandedToolCalls.has(message.id) && msgToolCalls.length > 0 && (
+              <section className="tool-call-details" aria-label="Tool execution details">
+                {msgToolCalls.map((tool) => (
+                  <div key={tool.itemId} className={`tool-call-item ${tool.status === 'completed' ? 'success' : tool.status === 'failed' ? 'error' : 'pending'}`}>
+                    <div className="tool-call-header">
+                      <span className="tool-name">{tool.name || tool.itemId}</span>
+                      <span className="tool-status" aria-label={tool.status}>
+                        {tool.status === 'completed' ? '✓' : tool.status === 'failed' ? '✗' : '⏳'}
+                      </span>
+                    </div>
+                    <div className="tool-call-server">Type: {tool.type}</div>
+                    {tool.arguments && (
+                      <details className="tool-call-args">
+                        <summary>Arguments</summary>
+                        <pre><code>{tool.arguments}</code></pre>
+                      </details>
+                    )}
+                    {tool.result && (
+                      <details className="tool-call-result">
+                        <summary>Result</summary>
+                        <pre><code>{tool.result}</code></pre>
+                      </details>
+                    )}
+                    {tool.error && (
+                      <div className="tool-call-error">Error: {tool.error}</div>
+                    )}
                   </div>
-                  <div className="tool-call-server">Server: {tool.server}</div>
-                  <details className="tool-call-args">
-                    <summary>Arguments</summary>
-                    <pre><code>{tool.arguments}</code></pre>
-                  </details>
-                  <details className="tool-call-result">
-                    <summary>Result</summary>
-                    <pre><code>{tool.result}</code></pre>
-                  </details>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </section>
+            )
+          })()}
           
           <div className="chat-bubble">
             <ReactMarkdown>{message.content}</ReactMarkdown>

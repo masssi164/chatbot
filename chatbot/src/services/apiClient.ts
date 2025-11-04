@@ -1,5 +1,28 @@
+import type {
+  McpCapabilities,
+} from "../types/mcp";
+
+export type {
+  McpCapabilities, PromptInfo, ResourceInfo, ToolInfo
+} from "../types/mcp";
 
 const DEFAULT_API_BASE = "/api";
+
+export class ApiError extends Error {
+  status?: number;
+  response?: unknown;
+  
+  constructor(
+    message: string,
+    status?: number,
+    response?: unknown
+  ) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.response = response;
+  }
+}
 
 function resolveBaseUrl() {
   const raw = import.meta.env.VITE_BACKEND_API;
@@ -11,227 +34,94 @@ function resolveBaseUrl() {
 
 const API_BASE = resolveBaseUrl();
 
-export interface McpCapabilities {
-  tools: ToolInfo[];
-  resources: ResourceInfo[];
-  prompts: PromptInfo[];
-  serverInfo: ServerInfo;
-}
-
-export interface ToolInfo {
-  name: string;
-  description?: string;
-  inputSchema?: unknown;
-}
-
-export interface ResourceInfo {
-  uri: string;
-  name?: string;
-  description?: string;
-  mimeType?: string;
-}
-
-export interface PromptInfo {
-  name: string;
-  description?: string;
-  arguments: PromptArgument[];
-}
-
-export interface PromptArgument {
-  name: string;
-  description?: string;
-  required: boolean;
-}
-
-export interface ServerInfo {
-  name: string;
-  version: string;
-  supportsTools?: boolean;
-  supportsResources?: boolean;
-  supportsPrompts?: boolean;
-}
-
-export interface SyncStatusResponse {
-  serverId: string;
-  status: "SYNCED" | "SYNCING" | "SYNC_FAILED" | "NEVER_SYNCED";
-  syncedAt?: string;
-  message?: string;
-}
-
-export class ApiError extends Error {
-  status: number;
-  payload?: unknown;
-
-  constructor(message: string, status: number, payload?: unknown) {
-    super(message);
-    this.status = status;
-    this.payload = payload;
-    this.name = "ApiError";
-  }
-}
-
-async function handleResponse<T>(response: Response): Promise<T> {
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, init);
   if (!response.ok) {
-    let message = `Request failed with status ${response.status}`;
-    let payload: unknown;
-
-    try {
-      const clone = response.clone();
-      payload = await clone.json();
-      if (
-        payload &&
-        typeof payload === "object" &&
-        "message" in payload &&
-        typeof (payload as { message?: unknown }).message === "string"
-      ) {
-        message = (payload as { message: string }).message;
-      }
-    } catch {
-      try {
-        const clone = response.clone();
-        const text = await clone.text();
-        if (text?.trim()) {
-          message = text.trim();
-          payload = text;
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    throw new ApiError(message, response.status, payload);
+    const message = await response.text();
+    throw new ApiError(
+      message || `Request failed with status ${response.status}`,
+      response.status
+    );
   }
-
   if (response.status === 204) {
     return undefined as T;
   }
-
   return (await response.json()) as T;
 }
 
-function buildUrl(path: string) {
-  if (path.startsWith("http://") || path.startsWith("https://")) {
-    return path;
-  }
-  const normalized = path.startsWith("/") ? path : `/${path}`;
-  return `${API_BASE}${normalized}`;
-}
-
-const defaultHeaders = {
-  "Content-Type": "application/json",
-};
-
-export function resolveApiUrl(path: string) {
-  return buildUrl(path);
-}
-
-export interface BackendChatSummary {
-  chatId: string;
+export interface ConversationSummary {
+  id: number;
   title: string | null;
   createdAt: string;
-  updatedAt: string | null;
+  updatedAt: string;
   messageCount: number;
 }
 
-export interface BackendToolCallInfo {
-  toolName: string;
-  server: string;
-  arguments: string;
-  result: string;
-  success: boolean;
-}
+export type Role = "USER" | "ASSISTANT" | "TOOL";
 
-export interface BackendChatMessage {
-  messageId: string;
-  role: "USER" | "ASSISTANT" | "SYSTEM";
+export interface MessageDto {
+  id: number;
+  role: Role;
   content: string;
+  rawJson?: string | null;
+  outputIndex?: number | null;
+  itemId?: string | null;
   createdAt: string;
-  toolCalls?: BackendToolCallInfo[];
 }
 
-export interface BackendChat {
-  chatId: string;
+export interface ToolCallDto {
+  id: number;
+  type: "FUNCTION" | "MCP";
+  name?: string | null;
+  callId?: string | null;
+  argumentsJson?: string | null;
+  resultJson?: string | null;
+  status: "IN_PROGRESS" | "COMPLETED" | "FAILED";
+  outputIndex?: number | null;
+  itemId?: string | null;
+  createdAt: string;
+}
+
+export interface ConversationDetail {
+  id: number;
   title: string | null;
-  systemPrompt: string | null;
-  titleModel: string | null;
   createdAt: string;
-  updatedAt: string | null;
-  messages: BackendChatMessage[];
+  updatedAt: string;
+  messages: MessageDto[];
+  toolCalls: ToolCallDto[];
 }
 
-export interface BackendChatMessageRequest {
-  messageId: string;
-  role: "USER" | "ASSISTANT" | "SYSTEM";
+export interface CreateConversationRequest {
+  title?: string | null;
+  messages?: NewMessageRequest[];
+}
+
+export interface NewMessageRequest {
+  role: Role;
   content: string;
-  createdAt?: string | null;
-  metadata?: string | null;
+  rawJson?: string | null;
+  outputIndex?: number | null;
+  itemId?: string | null;
 }
 
-export interface BackendCompletionParameters {
-  temperature?: number | null;
-  maxTokens?: number | null;
-  topP?: number | null;
-  presencePenalty?: number | null;
-  frequencyPenalty?: number | null;
+export interface AddMessageRequest {
+  role: Role;
+  content: string;
+  rawJson?: string | null;
+  outputIndex?: number | null;
+  itemId?: string | null;
 }
 
-export interface BackendCreateChatRequest {
-  chatId?: string;
-  title?: string | null;
-  model: string;
-  systemPrompt?: string | null;
-  titleModel?: string | null;
-  parameters?: BackendCompletionParameters | null;
-  messages?: BackendChatMessageRequest[];
-}
-
-export interface BackendUpdateChatRequest {
-  title?: string | null;
-  systemPrompt?: string | null;
-  titleModel?: string | null;
-}
-
-export interface BackendChatCompletionRequest {
-  message: BackendChatMessageRequest;
-  model: string;
-  systemPrompt?: string | null;
-  parameters?: BackendCompletionParameters | null;
-}
-
-export type McpTransportType = "SSE" | "STREAMABLE_HTTP";
-
-export interface BackendMcpServer {
-  serverId: string;
-  name: string;
-  baseUrl: string;
-  apiKey?: string | null;
-  status: "IDLE" | "CONNECTING" | "CONNECTED" | "ERROR";
-  transport: McpTransportType;
-  lastUpdated: string;
-}
-
-export interface BackendMcpServerRequest {
-  serverId?: string;
-  name: string;
-  baseUrl: string;
-  apiKey?: string | null;
-  status?: BackendMcpServer["status"];
-  transport?: McpTransportType;
-}
-
-export interface OpenAiModelList {
-  data: { id: string }[];
-}
-
+// N8n Types
 export interface BackendN8nConnection {
   baseUrl: string;
   configured: boolean;
-  updatedAt?: string | null;
+  updatedAt?: number | null;
 }
 
 export interface BackendN8nConnectionRequest {
   baseUrl: string;
-  apiKey: string;
+  apiKey?: string;
 }
 
 export interface BackendN8nConnectionStatus {
@@ -243,158 +133,140 @@ export interface BackendN8nWorkflowSummary {
   id: string;
   name: string;
   active: boolean;
-  updatedAt?: string | null;
-  tagIds: string[];
+  updatedAt?: number | null;
+  tags?: Array<{ id: string; name: string }>;
 }
 
 export interface BackendN8nWorkflowList {
-  items: BackendN8nWorkflowSummary[];
+  data: BackendN8nWorkflowSummary[];
   nextCursor?: string | null;
 }
 
+// MCP Server Types
+export type McpTransportType = "SSE" | "STREAMABLE_HTTP";
+
+export interface McpServerDto {
+  serverId: string;
+  name: string;
+  baseUrl: string;
+  hasApiKey: boolean;
+  status: "IDLE" | "CONNECTING" | "CONNECTED" | "ERROR";
+  transport: McpTransportType;
+  lastUpdated: string;
+}
+
+export interface McpServerRequest {
+  serverId?: string;
+  name: string;
+  baseUrl: string;
+  apiKey?: string;
+  status?: "IDLE" | "CONNECTING" | "CONNECTED" | "ERROR";
+  transport: McpTransportType;
+}
+
 export const apiClient = {
-  listChats(): Promise<BackendChatSummary[]> {
-    return fetch(buildUrl("/chats")).then((response) =>
-      handleResponse<BackendChatSummary[]>(response),
-    );
+  // Conversation Management
+  listConversations(): Promise<ConversationSummary[]> {
+    return request<ConversationSummary[]>("/conversations");
   },
 
-  updateChat(
-    chatId: string,
-    payload: BackendUpdateChatRequest,
-  ): Promise<BackendChat> {
-    return fetch(buildUrl(`/chats/${encodeURIComponent(chatId)}`), {
+  getConversation(conversationId: number): Promise<ConversationDetail> {
+    return request<ConversationDetail>(`/conversations/${conversationId}`);
+  },
+
+  createConversation(payload: CreateConversationRequest = {}): Promise<ConversationDetail> {
+    return request<ConversationDetail>("/conversations", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+  },
+
+  addMessage(conversationId: number, payload: AddMessageRequest): Promise<MessageDto> {
+    return request<MessageDto>(`/conversations/${conversationId}/messages`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+  },
+
+  // MCP Server Management
+  listMcpServers(): Promise<McpServerDto[]> {
+    return request<McpServerDto[]>("/mcp-servers");
+  },
+
+  upsertMcpServer(payload: McpServerRequest): Promise<McpServerDto> {
+    return request<McpServerDto>("/mcp-servers", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+  },
+
+  updateMcpServer(serverId: string, payload: McpServerRequest): Promise<McpServerDto> {
+    return request<McpServerDto>(`/mcp-servers/${serverId}`, {
       method: "PUT",
-      headers: defaultHeaders,
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify(payload),
-    }).then((response) => handleResponse<BackendChat>(response));
-  },
-
-  getChat(chatId: string): Promise<BackendChat> {
-    return fetch(buildUrl(`/chats/${encodeURIComponent(chatId)}`)).then(
-      (response) => handleResponse<BackendChat>(response),
-    );
-  },
-
-  createChat(payload: BackendCreateChatRequest): Promise<BackendChat> {
-    return fetch(buildUrl("/chats"), {
-      method: "POST",
-      headers: defaultHeaders,
-      body: JSON.stringify(payload),
-    }).then((response) => handleResponse<BackendChat>(response));
-  },
-
-  sendChatMessage(
-    chatId: string,
-    payload: BackendChatCompletionRequest,
-  ): Promise<BackendChat> {
-    return fetch(buildUrl(`/chats/${encodeURIComponent(chatId)}/messages`), {
-      method: "POST",
-      headers: defaultHeaders,
-      body: JSON.stringify(payload),
-    }).then((response) => handleResponse<BackendChat>(response));
-  },
-
-  deleteChat(chatId: string): Promise<void> {
-    return fetch(buildUrl(`/chats/${encodeURIComponent(chatId)}`), {
-      method: "DELETE",
-    }).then((response) => handleResponse<void>(response));
-  },
-
-  listMcpServers(): Promise<BackendMcpServer[]> {
-    return fetch(buildUrl("/mcp-servers")).then((response) =>
-      handleResponse<BackendMcpServer[]>(response),
-    );
-  },
-
-  upsertMcpServer(payload: BackendMcpServerRequest): Promise<BackendMcpServer> {
-    return fetch(buildUrl("/mcp-servers"), {
-      method: "POST",
-      headers: defaultHeaders,
-      body: JSON.stringify(payload),
-    }).then((response) => handleResponse<BackendMcpServer>(response));
-  },
-
-  updateMcpServer(
-    serverId: string,
-    payload: BackendMcpServerRequest,
-  ): Promise<BackendMcpServer> {
-    return fetch(buildUrl(`/mcp-servers/${encodeURIComponent(serverId)}`), {
-      method: "PUT",
-      headers: defaultHeaders,
-      body: JSON.stringify(payload),
-    }).then((response) => handleResponse<BackendMcpServer>(response));
+    });
   },
 
   deleteMcpServer(serverId: string): Promise<void> {
-    return fetch(buildUrl(`/mcp-servers/${encodeURIComponent(serverId)}`), {
+    return request<void>(`/mcp-servers/${serverId}`, {
       method: "DELETE",
-    }).then((response) => handleResponse<void>(response));
+    });
   },
 
   getMcpCapabilities(serverId: string): Promise<McpCapabilities> {
-    return fetch(buildUrl(`/mcp/servers/${encodeURIComponent(serverId)}/capabilities`), {
-      method: "GET",
-      headers: defaultHeaders,
-    }).then((response) => handleResponse<McpCapabilities>(response));
+    return request<McpCapabilities>(`/mcp-servers/${serverId}/capabilities`);
   },
 
-  syncMcpCapabilities(serverId: string): Promise<SyncStatusResponse> {
-    return fetch(buildUrl(`/mcp/servers/${encodeURIComponent(serverId)}/sync`), {
-      method: "POST",
-      headers: defaultHeaders,
-    }).then((response) => handleResponse<SyncStatusResponse>(response));
-  },
-
-  listModels(): Promise<OpenAiModelList> {
-    return fetch(buildUrl("/openai/models"), {
-      headers: {
-        Accept: "application/json",
-      },
-    }).then((response) => handleResponse<OpenAiModelList>(response));
-  },
-
+  // N8n Integration
   getN8nConnection(): Promise<BackendN8nConnection> {
-    return fetch(buildUrl("/n8n/connection")).then((response) =>
-      handleResponse<BackendN8nConnection>(response),
-    );
+    return request<BackendN8nConnection>("/n8n/connection");
   },
 
-  updateN8nConnection(
-    payload: BackendN8nConnectionRequest,
-  ): Promise<BackendN8nConnection> {
-    return fetch(buildUrl("/n8n/connection"), {
+  updateN8nConnection(payload: BackendN8nConnectionRequest): Promise<BackendN8nConnection> {
+    return request<BackendN8nConnection>("/n8n/connection", {
       method: "PUT",
-      headers: defaultHeaders,
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify(payload),
-    }).then((response) => handleResponse<BackendN8nConnection>(response));
+    });
   },
 
   testN8nConnection(): Promise<BackendN8nConnectionStatus> {
-    return fetch(buildUrl("/n8n/connection/test"), {
-      method: "POST",
-    }).then((response) => handleResponse<BackendN8nConnectionStatus>(response));
+    return request<BackendN8nConnectionStatus>("/n8n/connection/test");
   },
 
-  listN8nWorkflows(params?: {
+  getN8nWorkflows(params?: {
     limit?: number;
     cursor?: string;
     active?: boolean;
   }): Promise<BackendN8nWorkflowList> {
-    const search = new URLSearchParams();
-    if (typeof params?.limit === "number" && params.limit > 0) {
-      search.set("limit", Math.trunc(params.limit).toString());
-    }
-    if (params?.cursor) {
-      search.set("cursor", params.cursor);
-    }
-    if (typeof params?.active === "boolean") {
-      search.set("active", String(params.active));
-    }
-    const suffix = search.toString();
-    const path = suffix ? `/n8n/workflows?${suffix}` : "/n8n/workflows";
-    return fetch(buildUrl(path)).then((response) =>
-      handleResponse<BackendN8nWorkflowList>(response),
-    );
+    const query = new URLSearchParams();
+    if (params?.limit) query.set("limit", params.limit.toString());
+    if (params?.cursor) query.set("cursor", params.cursor);
+    if (params?.active !== undefined) query.set("active", params.active.toString());
+    const queryString = query.toString();
+    const url = queryString ? `/n8n/workflows?${queryString}` : "/n8n/workflows";
+    return request<BackendN8nWorkflowList>(url);
+  },
+
+  fetchModels(): Promise<string[]> {
+    return request<string[]>("/models");
   },
 };
+
+export function resolveApiUrl(path: string): string {
+  return `${API_BASE}${path}`;
+}
