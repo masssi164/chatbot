@@ -18,6 +18,11 @@ export function useChatState() {
     isStreaming: useChatStore((state) => state.isStreaming),
     streamError: useChatStore((state) => state.streamError),
     
+    // Response lifecycle tracking (matches backend Conversation entity)
+    responseId: useChatStore((state) => state.responseId),
+    conversationStatus: useChatStore((state) => state.conversationStatus),
+    completionReason: useChatStore((state) => state.completionReason),
+    
     // Model configuration
     model: useChatStore((state) => state.model),
     availableModels: useChatStore((state) => state.availableModels),

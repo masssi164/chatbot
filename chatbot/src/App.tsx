@@ -8,6 +8,28 @@ import SettingsPanel from "./components/SettingsPanel";
 import SystemPromptPanel from "./components/SystemPromptPanel";
 import { useChatActions, useChatState } from "./hooks/useChatState";
 import { useMcpActions, useMcpState } from "./hooks/useMcpState";
+import type { ConversationStatus } from "./services/apiClient";
+
+/**
+ * Get user-friendly label for conversation status (matches backend ConversationStatus enum)
+ */
+function getStatusLabel(status: ConversationStatus, isStreaming: boolean): string {
+  if (isStreaming) {
+    return "Streaming...";
+  }
+  switch (status) {
+    case "COMPLETED":
+      return "✓ Completed";
+    case "INCOMPLETE":
+      return "⚠️ Incomplete";
+    case "FAILED":
+      return "✗ Failed";
+    case "CREATED":
+    case "STREAMING":
+    default:
+      return "Idle";
+  }
+}
 
 function App() {
   // Chat state and actions (grouped via custom hooks)
@@ -101,7 +123,16 @@ function App() {
           </button>
         </div>
         <div className="status-bar">
-          {chatState.isStreaming ? <span className="status streaming">Streaming…</span> : <span className="status idle">Idle</span>}
+          {chatState.isStreaming ? (
+            <span className="status streaming">Streaming…</span>
+          ) : (
+            <span className={`status ${chatState.conversationStatus.toLowerCase()}`}>
+              {getStatusLabel(chatState.conversationStatus, chatState.isStreaming)}
+            </span>
+          )}
+          {chatState.completionReason && chatState.conversationStatus !== "COMPLETED" && (
+            <span className="status-detail">{chatState.completionReason}</span>
+          )}
           {chatState.streamError && <span className="status error">{chatState.streamError}</span>}
           {submitError && <span className="status error">{submitError}</span>}
         </div>

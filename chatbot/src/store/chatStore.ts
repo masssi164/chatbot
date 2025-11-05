@@ -3,6 +3,7 @@ import { create } from "zustand";
 import {
     apiClient,
     type ConversationDetail,
+    type ConversationStatus,
     type ConversationSummary,
     type MessageDto,
     type ToolCallDto,
@@ -64,6 +65,12 @@ interface ChatState extends PrivateState {
   toolCalls: ToolCallState[];
   isStreaming: boolean;
   streamError?: string;
+  
+  // Response lifecycle tracking (matches backend ConversationStatus)
+  responseId?: string | null;
+  conversationStatus: ConversationStatus;
+  completionReason?: string | null;
+  
   model: string;
   availableModels: string[];
   temperature?: number;
@@ -169,6 +176,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
   toolCalls: [],
   isStreaming: false,
   streamError: undefined,
+  
+  // Response lifecycle tracking
+  responseId: null,
+  conversationStatus: "CREATED",
+  completionReason: null,
+  
   model: "gpt-4.1-mini",
   availableModels: [],
   temperature: undefined,
@@ -322,6 +335,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       controller: null,
       streamingOutputs: {},
       toolCallIndex: {},
+      // Clear lifecycle fields (matches backend reset behavior)
+      responseId: null,
+      conversationStatus: "CREATED",
+      completionReason: null,
     });
   },
 
@@ -394,6 +411,10 @@ function applyConversationDetail(detail: ConversationDetail) {
     toolCalls: normalizeToolCalls(toolCallIndex),
     toolCallIndex,
     streamingOutputs: {},
+    // Lifecycle fields (matches backend Conversation entity)
+    responseId: detail.responseId ?? null,
+    conversationStatus: detail.status ?? "CREATED",
+    completionReason: detail.completionReason ?? null,
   });
 }
 
@@ -426,6 +447,29 @@ function handleStreamEvent(
   }
 
   switch (eventName) {
+    // Lifecycle events (matches backend ResponseStreamService)
+    case "response.created":
+      handleResponseCreated(data, set);
+      break;
+    case "response.completed":
+      handleResponseCompleted(data, set);
+      break;
+    case "response.incomplete":
+      handleResponseIncomplete(data, set);
+      break;
+    case "response.failed":
+      handleResponseFailed(data, set);
+      break;
+    
+    // Error events
+    case "response.error":
+      handleResponseError(data, set);
+      break;
+    case "error":
+      handleCriticalError(data, set);
+      break;
+    
+    // Text output events
     case "response.output_text.delta":
       handleTextDelta(data, set);
       break;
@@ -435,6 +479,8 @@ function handleStreamEvent(
     case "response.output_item.added":
       handleOutputItemAdded(data, set);
       break;
+    
+    // Function/MCP call events
     case "response.function_call_arguments.delta":
       updateToolCallArguments(data, set, "function");
       break;
@@ -456,13 +502,7 @@ function handleStreamEvent(
     case "response.mcp_call.failed":
       updateToolCallStatus(data, set, "failed", data?.error ?? null);
       break;
-    case "response.completed":
-      set({ isStreaming: false, controller: null });
-      break;
-    case "response.failed":
-    case "response.error":
-      set({ isStreaming: false, controller: null, streamError: data?.message ?? "Streaming failed" });
-      break;
+    
     default:
       break;
   }
@@ -677,5 +717,145 @@ function updateToolCallStatus(
       toolCallIndex,
       toolCalls: normalizeToolCalls(toolCallIndex),
     };
+  });
+}
+
+// ============================================
+// Lifecycle Event Handlers (matches backend ResponseStreamService)
+// ============================================
+
+/**
+ * Handle response.created event - sets responseId and transitions to STREAMING state.
+ * Backend: ResponseStreamService.handleResponseCreated()
+ */
+function handleResponseCreated(data: any, set: any) {
+  if (!data?.response) {
+    return;
+  }
+
+  const responseId = data.response.id;
+  console.log("✅ Response created:", responseId);
+
+  set({
+    responseId,
+    conversationStatus: "STREAMING",
+    streamError: undefined,
+  });
+}
+
+/**
+ * Handle response.completed event - marks conversation as successfully completed.
+ * Backend: ResponseStreamService.handleResponseCompleted()
+ */
+function handleResponseCompleted(data: any, set: any) {
+  if (!data?.response) {
+    return;
+  }
+
+  const responseId = data.response.id;
+  console.log("✅ Response completed:", responseId);
+
+  set({
+    isStreaming: false,
+    controller: null,
+    conversationStatus: "COMPLETED",
+    completionReason: null,
+    streamError: undefined,
+  });
+}
+
+/**
+ * Handle response.incomplete event - marks conversation as incomplete (e.g., token limit).
+ * Backend: ResponseStreamService.handleResponseIncomplete()
+ */
+function handleResponseIncomplete(data: any, set: any) {
+  if (!data?.response) {
+    return;
+  }
+
+  const reason = data.response.status_details?.reason || "length";
+  console.warn("⚠️ Response incomplete:", reason);
+
+  set({
+    isStreaming: false,
+    controller: null,
+    conversationStatus: "INCOMPLETE",
+    completionReason: reason,
+    streamError: undefined, // Not an error, just incomplete
+  });
+}
+
+/**
+ * Handle response.failed event - marks conversation as failed.
+ * Backend: ResponseStreamService.handleResponseFailed()
+ */
+function handleResponseFailed(data: any, set: any) {
+  if (!data?.response) {
+    return;
+  }
+
+  const error = data.response.error || {};
+  const errorCode = error.code || "unknown";
+  const errorMessage = error.message || "Response failed";
+
+  console.error("❌ Response failed:", errorCode, errorMessage);
+
+  set({
+    isStreaming: false,
+    controller: null,
+    conversationStatus: "FAILED",
+    completionReason: `${errorCode}: ${errorMessage}`,
+    streamError: errorMessage,
+  });
+}
+
+/**
+ * Handle response.error event - logs error but doesn't necessarily fail the conversation.
+ * Backend: ResponseStreamService.handleResponseError()
+ */
+function handleResponseError(data: any, set: any) {
+  if (!data?.error) {
+    return;
+  }
+
+  const error = data.error;
+  const code = error.code || "unknown";
+  const message = error.message || "Error occurred";
+
+  // Special handling for rate limits
+  if (code === "rate_limit_exceeded") {
+    console.warn("⚠️ Rate limit exceeded:", message);
+    set({
+      streamError: `Rate limit: ${message}`,
+    });
+  } else {
+    console.error("❌ Response error:", code, message);
+    set({
+      streamError: message,
+    });
+  }
+}
+
+/**
+ * Handle critical error event - fails the conversation immediately.
+ * Backend: ResponseStreamService.handleCriticalError()
+ */
+function handleCriticalError(data: any, set: any) {
+  if (!data?.error) {
+    return;
+  }
+
+  const error = data.error;
+  const code = error.code || "unknown";
+  const message = error.message || "Critical error";
+
+  console.error("❌ CRITICAL ERROR:", code, message);
+
+  set({
+    isStreaming: false,
+    controller: null,
+    conversationStatus: "FAILED",
+    completionReason: `CRITICAL: ${code}`,
+    streamError: message,
   });
 }

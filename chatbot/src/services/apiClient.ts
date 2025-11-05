@@ -1,9 +1,9 @@
 import type {
-  McpCapabilities,
+    McpCapabilities,
 } from "../types/mcp";
 
 export type {
-  McpCapabilities, PromptInfo, ResourceInfo, ToolInfo
+    McpCapabilities, PromptInfo, ResourceInfo, ToolInfo
 } from "../types/mcp";
 
 const DEFAULT_API_BASE = "/api";
@@ -55,9 +55,27 @@ export interface ConversationSummary {
   createdAt: string;
   updatedAt: string;
   messageCount: number;
+  responseId?: string | null;
+  status?: ConversationStatus;
+  completionReason?: string | null;
 }
 
 export type Role = "USER" | "ASSISTANT" | "TOOL";
+
+/**
+ * Conversation lifecycle status tracking for OpenAI Responses API.
+ * 
+ * Status transitions:
+ * CREATED → STREAMING → (COMPLETED | INCOMPLETE | FAILED)
+ * 
+ * Matches backend enum: app.chatbot.conversation.ConversationStatus
+ */
+export type ConversationStatus = 
+  | "CREATED"      // Conversation created, no response started yet
+  | "STREAMING"    // Response streaming in progress (after response.created event)
+  | "COMPLETED"    // Response completed successfully (response.completed event)
+  | "INCOMPLETE"   // Response ended before completion, typically due to token limits
+  | "FAILED";      // Response failed due to an error
 
 export interface MessageDto {
   id: number;
@@ -89,6 +107,9 @@ export interface ConversationDetail {
   updatedAt: string;
   messages: MessageDto[];
   toolCalls: ToolCallDto[];
+  responseId?: string | null;
+  status?: ConversationStatus;
+  completionReason?: string | null;
 }
 
 export interface CreateConversationRequest {

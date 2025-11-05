@@ -65,6 +65,28 @@ html,
   animation: pulse 1.5s infinite;
 }
 
+/* Lifecycle status styles (matches backend ConversationStatus enum) */
+.status.completed {
+  background: rgba(76, 175, 80, 0.1);
+  color: #2e7d32;
+}
+
+.status.incomplete {
+  background: rgba(255, 152, 0, 0.1);
+  color: #e65100;
+}
+
+.status.failed {
+  background: rgba(244, 67, 54, 0.1);
+  color: #c62828;
+}
+
+.status-detail {
+  padding: 0.35rem 0.65rem;
+  font-size: 0.85em;
+  color: rgba(0, 0, 0, 0.6);
+}
+
 .status.error {
   background: rgba(228, 68, 92, 0.12);
   color: #be2d3f;

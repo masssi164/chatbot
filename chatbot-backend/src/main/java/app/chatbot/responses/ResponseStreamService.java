@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,12 +28,14 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import app.chatbot.config.OpenAiProperties;
 import app.chatbot.conversation.Conversation;
 import app.chatbot.conversation.ConversationService;
+import app.chatbot.conversation.ConversationStatus;
 import app.chatbot.conversation.MessageRole;
 import app.chatbot.conversation.ToolCall;
 import app.chatbot.conversation.ToolCallStatus;
 import app.chatbot.conversation.ToolCallType;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 @Service
 public class ResponseStreamService {
@@ -110,13 +113,23 @@ public class ResponseStreamService {
                                     return response.bodyToFlux(SSE_TYPE);
                                 }
                                 return response.createException()
-                                        .flatMapMany(exception -> Flux.error(exception));
+                                        .flatMapMany(Flux::error);
                             })
                             .onErrorResume(error -> Flux.just(buildErrorEvent(error)));
 
-                    Flux<ServerSentEvent<String>> processed = upstream.concatMap(event -> handleEvent(event, state)
-                                    .thenReturn(cloneEvent(event)))
-                            .doFinally(signal -> state.clear());
+                    // Use flatMap with subscribeOn for non-blocking DB writes
+                    // Concurrency limit of 256 prevents overwhelming R2DBC connection pool
+                    Flux<ServerSentEvent<String>> processed = upstream
+                            .flatMap(event -> 
+                                    handleEvent(event, state)
+                                            .subscribeOn(Schedulers.boundedElastic())
+                                            .thenReturn(cloneEvent(event)),
+                                    256  // Max concurrency
+                            )
+                            .doFinally(signal -> {
+                                log.info("Stream terminated: {} (conversation: {})", signal, state.conversationId);
+                                state.clear();
+                            });
 
                     return Flux.concat(Flux.just(initEvent), processed);
                 });
@@ -170,19 +183,37 @@ public class ResponseStreamService {
         }
 
         return switch (eventName) {
+            // Lifecycle events
+            case "response.created" -> handleResponseCreated(payload, state);
+            case "response.completed" -> handleResponseCompleted(payload, state);
+            case "response.incomplete" -> handleResponseIncomplete(payload, state);
+            case "response.failed" -> handleResponseFailed(payload, state);
+            
+            // Error events
+            case "response.error" -> handleResponseError(payload, state);
+            case "error" -> handleCriticalError(payload, state);
+            
+            // Text output events
             case "response.output_text.delta" -> handleTextDelta(payload, state);
             case "response.output_text.done" -> handleTextDone(payload, state, data);
             case "response.output_item.added" -> handleOutputItemAdded(payload, state);
+            
+            // Function call events
             case "response.function_call_arguments.delta" -> handleFunctionArgumentsDelta(payload, state);
             case "response.function_call_arguments.done" -> handleFunctionArgumentsDone(payload, state);
+            
+            // MCP call events
             case "response.mcp_call_arguments.delta" -> handleMcpArgumentsDelta(payload, state);
             case "response.mcp_call_arguments.done" -> handleMcpArgumentsDone(payload, state);
             case "response.mcp_call.in_progress" -> updateToolCallStatus(payload, state, ToolCallStatus.IN_PROGRESS, null);
             case "response.mcp_call.completed" -> updateToolCallStatus(payload, state, ToolCallStatus.COMPLETED, null);
             case "response.mcp_call.failed" -> updateToolCallStatus(payload, state, ToolCallStatus.FAILED, payload.path("error").asText(null));
+            
+            // MCP list tools events
             case "response.mcp_list_tools.in_progress" -> handleMcpListToolsEvent(payload, "in_progress");
             case "response.mcp_list_tools.completed" -> handleMcpListToolsEvent(payload, "completed");
             case "response.mcp_list_tools.failed" -> handleMcpListToolsEvent(payload, "failed");
+            
             default -> Mono.empty();
         };
     }
@@ -191,9 +222,7 @@ public class ResponseStreamService {
         int outputIndex = payload.path("output_index").asInt(0);
         String delta = payload.path("delta").asText("");
         if (!delta.isEmpty()) {
-            state.textByOutputIndex
-                    .computeIfAbsent(outputIndex, ignored -> new StringBuilder())
-                    .append(delta);
+            state.appendText(outputIndex, delta);
         }
         return Mono.empty();
     }
@@ -204,10 +233,7 @@ public class ResponseStreamService {
         String text = payload.path("text").asText("");
 
         if (!StringUtils.hasText(text)) {
-            StringBuilder builder = state.textByOutputIndex.get(outputIndex);
-            if (builder != null) {
-                text = builder.toString();
-            }
+            text = state.getText(outputIndex);
         }
 
         final String finalText = text;
@@ -361,9 +387,14 @@ public class ResponseStreamService {
             tracker.arguments = new StringBuilder(arguments);
         }
 
+        // CRITICAL FIX: According to OpenAI Realtime API docs, response.mcp_call_arguments.done 
+        // does NOT contain a 'name' field - only arguments, item_id, and output_index.
+        // The name is never sent in the streaming events for MCP calls.
+        // We set name=NULL here as per V5 migration (nullable name column).
         Map<String, Object> attributes = new HashMap<>();
         attributes.put("argumentsJson", tracker.arguments.toString());
         attributes.put("outputIndex", outputIndex);
+        // name is intentionally NOT set here - it remains NULL per OpenAI API specification
 
         return conversationService.upsertToolCall(state.conversationId, itemId, ToolCallType.MCP, outputIndex, attributes)
                 .doOnNext(toolCall -> state.toolCalls.put(itemId, ToolCallTracker.from(toolCall)))
@@ -446,13 +477,149 @@ public class ResponseStreamService {
                 .build();
     }
 
+    // ============================================
+    // Lifecycle Event Handlers
+    // ============================================
+
+    /**
+     * Handle response.created event - sets responseId and transitions to STREAMING state.
+     */
+    private Mono<Void> handleResponseCreated(JsonNode payload, StreamState state) {
+        JsonNode response = payload.path("response");
+        String responseId = response.path("id").asText();
+        state.responseId = responseId;
+        state.status = ConversationStatus.STREAMING;
+
+        log.info("✅ Response created: {} for conversation: {}", responseId, state.conversationId);
+
+        return conversationService.updateConversationResponseId(state.conversationId, responseId)
+                .then();
+    }
+
+    /**
+     * Handle response.completed event - marks conversation as successfully completed.
+     */
+    private Mono<Void> handleResponseCompleted(JsonNode payload, StreamState state) {
+        JsonNode response = payload.path("response");
+        String responseId = response.path("id").asText();
+        state.status = ConversationStatus.COMPLETED;
+
+        log.info("✅ Response completed: {} for conversation: {}", responseId, state.conversationId);
+
+        return conversationService.finalizeConversation(
+                state.conversationId,
+                responseId,
+                ConversationStatus.COMPLETED
+        ).then();
+    }
+
+    /**
+     * Handle response.incomplete event - marks conversation as incomplete (e.g., token limit).
+     */
+    private Mono<Void> handleResponseIncomplete(JsonNode payload, StreamState state) {
+        JsonNode response = payload.path("response");
+        String responseId = response.path("id").asText();
+        String reason = response.path("status_details").path("reason").asText("length");
+        state.status = ConversationStatus.INCOMPLETE;
+
+        log.warn("⚠️ Response incomplete ({}): {} for conversation: {}",
+                reason, responseId, state.conversationId);
+
+        return conversationService.finalizeConversation(
+                state.conversationId,
+                responseId,
+                ConversationStatus.INCOMPLETE,
+                reason
+        ).then();
+    }
+
+    /**
+     * Handle response.failed event - marks conversation as failed.
+     */
+    private Mono<Void> handleResponseFailed(JsonNode payload, StreamState state) {
+        JsonNode response = payload.path("response");
+        JsonNode error = response.path("error");
+
+        String errorCode = error.path("code").asText("unknown");
+        String errorMessage = error.path("message").asText("");
+        state.status = ConversationStatus.FAILED;
+
+        log.error("❌ Response failed: {} - {} (conversation: {})",
+                errorCode, errorMessage, state.conversationId);
+
+        return conversationService.finalizeConversation(
+                state.conversationId,
+                state.responseId,
+                ConversationStatus.FAILED,
+                errorCode + ": " + errorMessage
+        ).then();
+    }
+
+    /**
+     * Handle response.error event - logs error but doesn't necessarily fail the conversation.
+     */
+    private Mono<Void> handleResponseError(JsonNode payload, StreamState state) {
+        JsonNode error = payload.path("error");
+        String code = error.path("code").asText("unknown");
+        String message = error.path("message").asText("");
+
+        // Special handling for rate limits
+        if ("rate_limit_exceeded".equals(code)) {
+            log.warn("⚠️ Rate limit hit for conversation {}: {}", state.conversationId, message);
+        } else {
+            log.error("❌ Response error: {} - {} (conversation: {})", code, message, state.conversationId);
+        }
+
+        return Mono.empty();
+    }
+
+    /**
+     * Handle critical error event - fails the conversation immediately.
+     */
+    private Mono<Void> handleCriticalError(JsonNode payload, StreamState state) {
+        JsonNode error = payload.path("error");
+        String code = error.path("code").asText("unknown");
+        String message = error.path("message").asText("");
+
+        state.status = ConversationStatus.FAILED;
+
+        log.error("❌ CRITICAL ERROR: {} - {} (conversation: {})",
+                code, message, state.conversationId);
+
+        return conversationService.finalizeConversation(
+                state.conversationId,
+                state.responseId,
+                ConversationStatus.FAILED,
+                "CRITICAL: " + code
+        ).then();
+    }
+
     private static final class StreamState {
         private final Long conversationId;
-        private final Map<Integer, StringBuilder> textByOutputIndex = new ConcurrentHashMap<>();
+        private volatile String responseId;
+        private volatile ConversationStatus status = ConversationStatus.CREATED;
+        private final Map<Integer, AtomicReference<String>> textByOutputIndex = new ConcurrentHashMap<>();
         private final Map<String, ToolCallTracker> toolCalls = new ConcurrentHashMap<>();
 
         private StreamState(Long conversationId) {
             this.conversationId = conversationId;
+        }
+
+        /**
+         * Thread-safe text append using AtomicReference.
+         */
+        void appendText(int outputIndex, String delta) {
+            textByOutputIndex
+                    .computeIfAbsent(outputIndex, k -> new AtomicReference<>(""))
+                    .updateAndGet(current -> current + delta);
+        }
+
+        /**
+         * Get accumulated text for output index.
+         */
+        String getText(int outputIndex) {
+            AtomicReference<String> ref = textByOutputIndex.get(outputIndex);
+            return ref != null ? ref.get() : "";
         }
 
         private void clear() {

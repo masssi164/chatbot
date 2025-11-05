@@ -3,6 +3,8 @@ package app.chatbot.conversation;
 import java.time.Instant;
 import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -13,6 +15,8 @@ import reactor.core.publisher.Mono;
 
 @Service
 public class ConversationService {
+
+    private static final Logger log = LoggerFactory.getLogger(ConversationService.class);
 
     private final ConversationRepository conversationRepository;
     private final MessageRepository messageRepository;
@@ -103,6 +107,21 @@ public class ConversationService {
                 }))
                 .flatMap(existing -> applyToolCallAttributes(existing, attributes))
                 .flatMap(toolCallRepository::save)
+                .onErrorResume(e -> {
+                    // Catch both R2DBC and Spring's wrapped DuplicateKeyException
+                    if (e instanceof io.r2dbc.spi.R2dbcDataIntegrityViolationException ||
+                        e instanceof org.springframework.dao.DuplicateKeyException) {
+                        // Race condition: Another thread inserted the same item_id
+                        // Retry with UPDATE instead
+                        log.debug("Tool call {} already exists (caught {}), retrying with update", 
+                                  itemId, e.getClass().getSimpleName());
+                        return toolCallRepository.findByConversationIdAndItemId(conversationId, itemId)
+                                .flatMap(existing -> applyToolCallAttributes(existing, attributes))
+                                .flatMap(toolCallRepository::save);
+                    }
+                    // Re-throw other exceptions
+                    return Mono.error(e);
+                })
                 .flatMap(saved -> touchConversation(conversationId, now).thenReturn(saved));
     }
 
@@ -156,5 +175,46 @@ public class ConversationService {
         }
         String trimmed = title.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    /**
+     * Update conversation with response ID from response.created event.
+     */
+    public Mono<Conversation> updateConversationResponseId(Long conversationId, String responseId) {
+        return conversationRepository.findById(conversationId)
+                .flatMap(conv -> {
+                    conv.setResponseId(responseId);
+                    conv.setStatus(ConversationStatus.STREAMING);
+                    conv.setUpdatedAt(Instant.now());
+                    return conversationRepository.save(conv);
+                });
+    }
+
+    /**
+     * Finalize conversation with status and optional completion reason.
+     */
+    public Mono<Conversation> finalizeConversation(Long conversationId,
+                                                    String responseId,
+                                                    ConversationStatus status) {
+        return finalizeConversation(conversationId, responseId, status, null);
+    }
+
+    /**
+     * Finalize conversation with status and completion reason.
+     */
+    public Mono<Conversation> finalizeConversation(Long conversationId,
+                                                    String responseId,
+                                                    ConversationStatus status,
+                                                    String completionReason) {
+        return conversationRepository.findById(conversationId)
+                .flatMap(conv -> {
+                    if (responseId != null) {
+                        conv.setResponseId(responseId);
+                    }
+                    conv.setStatus(status);
+                    conv.setCompletionReason(completionReason);
+                    conv.setUpdatedAt(Instant.now());
+                    return conversationRepository.save(conv);
+                });
     }
 }

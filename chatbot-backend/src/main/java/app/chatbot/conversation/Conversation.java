@@ -23,6 +23,15 @@ public class Conversation {
 
     private String title;
 
+    @Column("response_id")
+    private String responseId;
+
+    @Builder.Default
+    private ConversationStatus status = ConversationStatus.CREATED;
+
+    @Column("completion_reason")
+    private String completionReason;
+
     @Column("created_at")
     private Instant createdAt;
 
