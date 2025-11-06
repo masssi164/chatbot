@@ -6,9 +6,8 @@ import { apiClient } from '../services/apiClient';
 vi.mock('../services/apiClient', () => ({
   apiClient: {
     createConversation: vi.fn(),
-    getConversations: vi.fn(),
+    listConversations: vi.fn(),
     getConversation: vi.fn(),
-    deleteConversation: vi.fn(),
   },
 }));
 
@@ -35,7 +34,14 @@ describe('conversationStore', () => {
   });
 
   it('should ensure conversation creates new one if none exists', async () => {
-    const mockConversation = { id: 1, title: 'New Chat', createdAt: '2024-01-01', updatedAt: '2024-01-01' };
+    const mockConversation = { 
+      id: 1, 
+      title: 'New Chat', 
+      createdAt: '2024-01-01', 
+      updatedAt: '2024-01-01',
+      messages: [],
+      toolCalls: []
+    };
     vi.mocked(apiClient.createConversation).mockResolvedValue(mockConversation);
 
     await useConversationStore.getState().ensureConversation();
@@ -56,14 +62,14 @@ describe('conversationStore', () => {
 
   it('should load conversations list', async () => {
     const mockConversations = [
-      { id: 1, title: 'Chat 1', createdAt: '2024-01-01', updatedAt: '2024-01-01', status: 'COMPLETED' },
-      { id: 2, title: 'Chat 2', createdAt: '2024-01-02', updatedAt: '2024-01-02', status: 'COMPLETED' },
+      { id: 1, title: 'Chat 1', createdAt: '2024-01-01', updatedAt: '2024-01-01', status: 'COMPLETED' as const, messageCount: 5 },
+      { id: 2, title: 'Chat 2', createdAt: '2024-01-02', updatedAt: '2024-01-02', status: 'COMPLETED' as const, messageCount: 3 },
     ];
-    vi.mocked(apiClient.getConversations).mockResolvedValue(mockConversations);
+    vi.mocked(apiClient.listConversations).mockResolvedValue(mockConversations);
 
     await useConversationStore.getState().loadConversations();
 
-    expect(apiClient.getConversations).toHaveBeenCalled();
+    expect(apiClient.listConversations).toHaveBeenCalled();
     const state = useConversationStore.getState();
     expect(state.conversationSummaries).toHaveLength(2);
     expect(state.conversationSummaries[0].title).toBe('Chat 1');
@@ -90,44 +96,23 @@ describe('conversationStore', () => {
   });
 
   it('should create a new conversation', async () => {
-    const mockConversation = { id: 1, title: 'Custom Title', createdAt: '2024-01-01', updatedAt: '2024-01-01' };
+    const mockConversation = { id: 1, title: 'Custom Title', createdAt: '2024-01-01', updatedAt: '2024-01-01', messages: [], toolCalls: [], status: 'CREATED' as const };
     vi.mocked(apiClient.createConversation).mockResolvedValue(mockConversation);
-    vi.mocked(apiClient.getConversations).mockResolvedValue([mockConversation]);
+    vi.mocked(apiClient.listConversations).mockResolvedValue([{ 
+      id: 1, 
+      title: 'Custom Title', 
+      createdAt: '2024-01-01', 
+      updatedAt: '2024-01-01',
+      messageCount: 0
+    }]);
 
     const id = await useConversationStore.getState().createConversation('Custom Title');
 
-    expect(apiClient.createConversation).toHaveBeenCalledWith('Custom Title');
+    expect(apiClient.createConversation).toHaveBeenCalledWith({ title: 'Custom Title' });
     expect(id).toBe(1);
     const state = useConversationStore.getState();
     expect(state.conversationId).toBe(1);
     expect(state.conversationTitle).toBe('Custom Title');
-  });
-
-  it('should delete a conversation', async () => {
-    const mockConversations = [
-      { id: 1, title: 'Chat 1', createdAt: '2024-01-01', updatedAt: '2024-01-01', status: 'COMPLETED' },
-      { id: 2, title: 'Chat 2', createdAt: '2024-01-02', updatedAt: '2024-01-02', status: 'COMPLETED' },
-    ];
-    useConversationStore.setState({ conversationSummaries: mockConversations });
-    vi.mocked(apiClient.deleteConversation).mockResolvedValue(undefined);
-
-    await useConversationStore.getState().deleteConversation(1);
-
-    expect(apiClient.deleteConversation).toHaveBeenCalledWith(1);
-    const state = useConversationStore.getState();
-    expect(state.conversationSummaries).toHaveLength(1);
-    expect(state.conversationSummaries[0].id).toBe(2);
-  });
-
-  it('should reset current conversation when deleted', async () => {
-    useConversationStore.setState({ conversationId: 1, conversationTitle: 'Test' });
-    vi.mocked(apiClient.deleteConversation).mockResolvedValue(undefined);
-
-    await useConversationStore.getState().deleteConversation(1);
-
-    const state = useConversationStore.getState();
-    expect(state.conversationId).toBeNull();
-    expect(state.conversationTitle).toBeNull();
   });
 
   it('should set current conversation', () => {
@@ -155,7 +140,7 @@ describe('conversationStore', () => {
 
   it('should handle errors when loading conversations', async () => {
     const error = new Error('Network error');
-    vi.mocked(apiClient.getConversations).mockRejectedValue(error);
+    vi.mocked(apiClient.listConversations).mockRejectedValue(error);
 
     await useConversationStore.getState().loadConversations();
 

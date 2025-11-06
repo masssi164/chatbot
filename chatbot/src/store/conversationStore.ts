@@ -17,7 +17,6 @@ export interface ConversationState {
   loadConversations: () => Promise<void>;
   loadConversation: (conversationId: number) => Promise<void>;
   createConversation: (title?: string) => Promise<number>;
-  deleteConversation: (conversationId: number) => Promise<void>;
   setCurrentConversation: (conversationId: number | null, title?: string | null) => void;
   reset: () => void;
 }
@@ -51,7 +50,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   loadConversations: async () => {
     try {
       set({ loading: true, error: null });
-      const summaries = await apiClient.getConversations();
+      const summaries = await apiClient.listConversations();
       set({ conversationSummaries: summaries, loading: false });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Failed to load conversations";
@@ -79,7 +78,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   createConversation: async (title?: string) => {
     try {
       set({ loading: true, error: null });
-      const conversation = await apiClient.createConversation(title);
+      const conversation = await apiClient.createConversation({ title: title || null });
       set({
         conversationId: conversation.id,
         conversationTitle: conversation.title,
@@ -94,29 +93,6 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       const errorMessage = error instanceof Error ? error.message : "Failed to create conversation";
       set({ error: errorMessage, loading: false });
       console.error("Failed to create conversation:", error);
-      throw error;
-    }
-  },
-
-  deleteConversation: async (conversationId: number) => {
-    try {
-      set({ loading: true, error: null });
-      await apiClient.deleteConversation(conversationId);
-      
-      // Remove from summaries
-      set((state) => ({
-        conversationSummaries: state.conversationSummaries.filter((c) => c.id !== conversationId),
-        loading: false,
-      }));
-      
-      // If this was the current conversation, reset it
-      if (get().conversationId === conversationId) {
-        set({ conversationId: null, conversationTitle: null });
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Failed to delete conversation";
-      set({ error: errorMessage, loading: false });
-      console.error("Failed to delete conversation:", error);
       throw error;
     }
   },
