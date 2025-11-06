@@ -109,8 +109,7 @@ export const useToolCallStore = create<ToolCallStoreState>((set, get) => ({
 
   approveToolExecution: async (approvalRequestId: string, approved: boolean) => {
     try {
-      // In a real implementation, this would call the API
-      // For now, we just clear the pending approval
+      // Send approval decision to backend
       await fetch(`/api/responses/approval/${approvalRequestId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
