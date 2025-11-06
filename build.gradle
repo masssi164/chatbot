@@ -37,22 +37,65 @@ task buildAllImages {
 // Configure Docker Compose to build images before starting
 composeUp.dependsOn buildAllImages
 
-// Development mode - uses H2, only builds what's needed
+// Development mode - starts infrastructure in Docker, apps locally
 task developmentUp {
     group = 'application'
-    description = 'Starts services in development mode (H2 database)'
-    
-    dependsOn buildAllImages
-    dependsOn 'composeUp'
-    
-    doFirst {
-        // Use dev compose file
-        dockerCompose.useComposeFiles = ['docker-compose.yml', 'docker-compose.dev.yml']
-    }
+    description = 'Starts infrastructure (ollama, litellm, n8n, postgres-n8n) with Docker, chatbot-backend with bootJar, and frontend with npm run dev'
     
     doLast {
-        // Reset to default compose files
-        dockerCompose.useComposeFiles = ['docker-compose.yml']
+        println "=== Starting Development Environment ==="
+        
+        // Step 1: Start infrastructure services with Docker Compose
+        println "\n[1/4] Starting infrastructure services (ollama, litellm, n8n, postgres-n8n)..."
+        project.exec {
+            commandLine 'docker', 'compose', 'up', '-d', 'postgres-n8n', 'n8n', 'ollama', 'litellm'
+        }
+        
+        // Step 2: Wait for ollama to be healthy and install models
+        println "\n[2/4] Waiting for Ollama to be ready..."
+        project.exec {
+            commandLine 'bash', '-c', 'until curl -fsS http://localhost:11434/api/tags > /dev/null 2>&1; do echo "Waiting for Ollama..."; sleep 2; done'
+        }
+        
+        println "\n[3/4] Installing Ollama models (this may take a while)..."
+        def models = ['llama3.2', 'llama3.1', 'mistral', 'qwen2.5:7b']
+        models.each { model ->
+            println "  - Installing model: ${model}"
+            try {
+                project.exec {
+                    commandLine 'docker', 'compose', 'exec', '-T', 'ollama', 'ollama', 'pull', model
+                    ignoreExitValue = true
+                }
+            } catch (Exception e) {
+                println "  Warning: Failed to install model ${model}: ${e.message}"
+            }
+        }
+        
+        println "\n[4/4] Starting chatbot applications..."
+        println """
+╔══════════════════════════════════════════════════════════════════╗
+║                  Development Environment Ready                    ║
+╠══════════════════════════════════════════════════════════════════╣
+║ Infrastructure services are running in Docker:                   ║
+║  • Ollama:       http://localhost:11434                          ║
+║  • LiteLLM:      http://localhost:4000                           ║
+║  • n8n:          http://localhost:5678                           ║
+║  • PostgreSQL:   localhost:5432 (for n8n)                        ║
+║                                                                   ║
+║ Next steps to run the applications:                              ║
+║                                                                   ║
+║  Terminal 1 - Backend (with bootJar):                            ║
+║    ./gradlew :chatbot-backend:bootRun                            ║
+║    (Backend will run on http://localhost:8080)                   ║
+║                                                                   ║
+║  Terminal 2 - Frontend (with npm run dev):                       ║
+║    cd chatbot && npm run dev                                     ║
+║    (Frontend will run on http://localhost:5173)                  ║
+║                                                                   ║
+║ To stop infrastructure services:                                 ║
+║    docker compose down                                           ║
+╚══════════════════════════════════════════════════════════════════╝
+"""
     }
 }
 
