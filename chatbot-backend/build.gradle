@@ -28,8 +28,13 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-webflux'
     implementation 'org.springframework.boot:spring-boot-starter-data-r2dbc'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
-    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-core:11.11.2'  // Gängigste stabile Version - kompatibel mit PostgreSQL 16.10 und Spring Boot 3.4
+    // Database drivers - H2 for dev/test, PostgreSQL for production
     runtimeOnly 'com.h2database:h2'
+    runtimeOnly 'io.r2dbc:r2dbc-h2'
+    runtimeOnly 'org.postgresql:r2dbc-postgresql:1.0.8.RELEASE'  // Spring Boot 3.4.11 kompatible Version
+    runtimeOnly 'org.postgresql:postgresql:42.7.8' // Spring Boot 3.4.11 getestete PostgreSQL Driver Version
+    
     implementation 'org.openapitools:jackson-databind-nullable:0.2.6'
     implementation 'io.projectreactor.netty:reactor-netty-http'
     
@@ -40,8 +45,6 @@ dependencies {
     
     // Reactor Netty für MCP Mock Server in Tests
     testImplementation 'io.projectreactor.netty:reactor-netty-http'
-    
-    runtimeOnly 'io.r2dbc:r2dbc-h2'
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
     testCompileOnly 'org.projectlombok:lombok'

@@ -1,0 +1,46 @@
+# LiteLLM Proxy Configuration for Ollama Integration
+# OpenAI-compatible API gateway to Ollama models
+
+model_list:
+  # Chat models via ollama_chat (recommended by LiteLLM)
+  - model_name: llama3.2
+    litellm_params:
+      model: ollama_chat/llama3.2
+      api_base: http://ollama:11434
+      keep_alive: "8m"  # Keep model in RAM for 8 minutes
+      
+  - model_name: llama3.1
+    litellm_params:
+      model: ollama_chat/llama3.1
+      api_base: http://ollama:11434
+      keep_alive: "8m"
+      
+  - model_name: mistral
+    litellm_params:
+      model: ollama_chat/mistral
+      api_base: http://ollama:11434
+      keep_alive: "8m"
+      
+  - model_name: qwen2.5
+    litellm_params:
+      model: ollama_chat/qwen2.5
+      api_base: http://ollama:11434
+      keep_alive: "8m"
+
+# LiteLLM settings
+litellm_settings:
+  drop_params: True          # Drop unsupported OpenAI params
+  set_verbose: True          # Enable verbose logging
+  
+# Router settings for load balancing
+router_settings:
+  routing_strategy: "least-busy"  # Route to least busy model
+  
+# General proxy settings
+general_settings:
+  master_key: ${LITELLM_MASTER_KEY:-sk-local-master}
+  alerting: []
+  
+# Environment variables
+environment_variables:
+  OLLAMA_HOST: "0.0.0.0:11434"

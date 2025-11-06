@@ -1,12 +1,11 @@
-# Use Eclipse Temurin JDK 17
-FROM eclipse-temurin:17-jdk-alpine AS builder
+# Use Eclipse Temurin JDK 17 - multi-platform support
+FROM eclipse-temurin:17-jdk AS builder
 
 WORKDIR /app
 
 # Copy Gradle wrapper and build files
 COPY gradle gradle
 COPY gradlew .
-COPY gradle.properties .
 COPY build.gradle .
 COPY settings.gradle .
 
@@ -16,13 +15,15 @@ COPY src src
 # Build the application
 RUN ./gradlew bootJar --no-daemon
 
-# Production stage
-FROM eclipse-temurin:17-jre-alpine
+# Production stage - multi-platform support
+FROM eclipse-temurin:17-jre
 
 WORKDIR /app
 
-# Create non-root user
-RUN addgroup -S spring && adduser -S spring -G spring
+# Install curl for health checks and create non-root user (Ubuntu/Debian syntax)
+RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/* && \
+    groupadd -r spring && useradd -r -g spring spring
 USER spring:spring
 
 # Copy the built jar from builder
@@ -31,9 +32,9 @@ COPY --from=builder /app/build/libs/*.jar app.jar
 # Expose port
 EXPOSE 8080
 
-# Health check
+# Health check (using curl instead of wget for Ubuntu base image)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-  CMD wget --quiet --tries=1 --spider http://localhost:8080/actuator/health || exit 1
+  CMD curl -f http://localhost:8080/actuator/health || exit 1
 
 # Run the application
 ENTRYPOINT ["java", "-jar", "app.jar"]
