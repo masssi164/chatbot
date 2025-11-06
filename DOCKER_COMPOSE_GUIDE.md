@@ -61,36 +61,33 @@ The `docker-compose.yml` defines a complete stack with 4 services:
 
 **Use case:** Fast development with hot reload while using real services.
 
-**Step 1:** Modify `docker-compose.yml` temporarily
-
-Comment out the chatbot services:
-```yaml
-#  chatbot-backend:
-#    build:
-#      context: ./chatbot-backend
-#    ...
-#
-#  chatbot-frontend:
-#    build:
-#      context: ./chatbot
-#    ...
-```
-
-**Step 2:** Start infrastructure only
+**Step 1:** Start infrastructure services
 ```bash
-./gradlew composeUp
+./gradlew developmentUp
 ```
 
-**Step 3:** Run backend locally
+This command will:
+- Start Ollama, LiteLLM, n8n, and PostgreSQL (for n8n) in Docker
+- Wait for services to be ready
+- Attempt to download Ollama models (llama3.2, mistral)
+- Display instructions for next steps
+
+**Step 2:** Run backend locally
 ```bash
 # Terminal 1: Backend with hot reload
 ./gradlew :chatbot-backend:bootRun
 ```
 
-**Step 4:** Run frontend locally
+The backend will:
+- Use H2 in-memory database (dev profile)
+- Connect to LiteLLM at http://localhost:4000
+- Run on http://localhost:8080
+
+**Step 3:** Run frontend locally
 ```bash
 # Terminal 2: Frontend with Vite dev server
 cd chatbot
+npm install  # First time only
 npm run dev
 ```
 
@@ -98,16 +95,25 @@ npm run dev
 - http://localhost:5173 (Frontend - Vite dev server)
 - http://localhost:8080 (Backend API)
 - http://localhost:5678 (n8n)
+- http://localhost:4000 (LiteLLM API)
+- http://localhost:11434 (Ollama API)
+
+**Stop infrastructure:**
+```bash
+docker compose down
+```
 
 **Pros:**
 - ✅ Fast hot reload for frontend
 - ✅ Spring Boot DevTools for backend
-- ✅ Real infrastructure (n8n, PostgreSQL)
+- ✅ Real infrastructure (n8n, PostgreSQL, Ollama, LiteLLM)
 - ✅ Faster iteration
+- ✅ Single command to start infrastructure
+- ✅ Local AI models available
 
 **Cons:**
 - ❌ Need Java 17 and Node.js installed
-- ❌ Manual startup of apps
+- ❌ Requires Docker with sufficient resources for Ollama
 
 ---
 
@@ -293,11 +299,13 @@ docker build -f chatbot-backend/Dockerfile chatbot-backend
 
 ## Service URLs Reference
 
-| Service | Docker Compose | Local Development |
-|---------|---------------|-------------------|
+| Service | Docker Compose (Production) | Local Development (Hybrid) |
+|---------|----------------------------|---------------------------|
 | Frontend | http://localhost:3000 | http://localhost:5173 |
 | Backend | http://localhost:8080 | http://localhost:8080 |
 | Backend Health | http://localhost:8080/actuator/health | http://localhost:8080/actuator/health |
 | n8n | http://localhost:5678 | http://localhost:5678 |
-| PostgreSQL | localhost:5432 | localhost:5432 |
+| PostgreSQL (n8n) | localhost:5432 | localhost:5432 |
+| Ollama | http://localhost:11434 | http://localhost:11434 |
+| LiteLLM | http://localhost:4000 | http://localhost:4000 |
 | MCP Server | http://localhost:5678/mcp/2714421f-0865-468b-b938-0d592153a235 | Same |
