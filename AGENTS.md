@@ -573,319 +573,55 @@ Key variables:
 
 ### ⚠️ Areas for Improvement
 
-#### 1. **Code Redundancy**
-
-**Issue**: `ResponseStreamService` is very large (800+ lines) with complex nested logic.
-
-**Suggestion**: Extract sub-services:
-```java
-// Extract tool execution logic
-ToolExecutionService {
-  Mono<ToolResult> executeWithApproval(...)
-}
-
-// Extract SSE event handling
-SseEventMapper {
-  ServerSentEvent<String> mapToFrontend(...)
-}
-
-// Extract OpenAI request building
-OpenAiRequestBuilder {
-  ObjectNode buildRequest(...)
-}
-```
-
-**Files to refactor**: `chatbot-backend/src/main/java/app/chatbot/responses/ResponseStreamService.java`
-
----
-
-#### 2. **Hard to Maintain: Complex State Machine**
-
-**Issue**: `ResponseStreamService` has complex state tracking with multiple flags:
-```java
-StreamState {
-  AtomicReference<String> currentMessageId
-  AtomicReference<String> currentToolCallId
-  Map<String, ToolCallInfo> toolCalls
-  AtomicBoolean waitingForApproval
-  // ... many more
-}
-```
-
-**Suggestion**: Use formal state machine pattern with clear states and transitions:
-```java
-enum StreamingState {
-  INITIALIZING,
-  STREAMING_TEXT,
-  WAITING_FOR_APPROVAL,
-  EXECUTING_TOOL,
-  FINALIZING,
-  COMPLETED,
-  FAILED
-}
-
-class StreamStateMachine {
-  transition(Event event) -> State
-}
-```
-
-**Files affected**: `chatbot-backend/src/main/java/app/chatbot/responses/ResponseStreamService.java`
-
----
-
-#### 3. **Potential Race Condition in McpSessionRegistry**
-
-**Issue**: Session initialization might race between multiple concurrent requests:
-```java
-// Two threads call getOrCreateSession(serverId) simultaneously
-// Both might see INITIALIZING state and wait
-// If init fails, both fail
-```
-
-**Suggestion**: Use `Mono.cache()` for initialization:
-```java
-Mono<McpAsyncClient> initMono = initializeClient(serverId).cache();
-holder.initializationMono = initMono;
-```
-
-**Files affected**: `chatbot-backend/src/main/java/app/chatbot/mcp/McpSessionRegistry.java`
-
----
-
-#### 4. **Missing Caching for MCP Capabilities**
-
-**Issue**: Every tool call loads capabilities from database, but capabilities could be cached in-memory.
-
-**Suggestion**: Add Spring Cache:
-```java
-@Cacheable("mcp-capabilities")
-public Mono<List<Tool>> getTools(String serverId) {
-  // Load from DB cache or refresh from server
-}
-
-@CacheEvict("mcp-capabilities")
-public Mono<Void> syncCapabilities(String serverId) {
-  // Invalidate cache after sync
-}
-```
-
-**Files affected**: 
-- `chatbot-backend/src/main/java/app/chatbot/mcp/McpServerService.java`
-- `chatbot-backend/src/main/java/app/chatbot/mcp/McpToolContextBuilder.java`
-
----
-
-#### 5. **Frontend: Zustand Store Complexity**
-
-**Issue**: `chatStore.ts` is 1000+ lines with many responsibilities:
-- Conversation management
-- Message handling
-- Streaming state
-- Tool execution tracking
-- Model configuration
-
-**Suggestion**: Split into multiple stores:
-```typescript
-// conversationStore.ts - CRUD for conversations
-// messageStore.ts - Message management
-// streamingStore.ts - SSE state
-// toolCallStore.ts - Tool execution tracking
-// configStore.ts - Model configuration
-```
-
-**Files to refactor**: `chatbot/src/store/chatStore.ts`
-
----
-
-#### 6. **Inconsistent Error Handling**
-
-**Issue**: Some services throw `ResponseStatusException`, others return `Mono.error()`, frontend sometimes catches, sometimes doesn't.
-
-**Suggestion**: Standardize error handling:
-- Backend: Use `@ControllerAdvice` for global exception handling
-- Frontend: Use error boundaries + global error handler
-
-**Files affected**: Multiple controllers and services
-
----
-
-#### 7. **Missing Input Validation**
-
-**Issue**: Some endpoints don't validate input (e.g., tool arguments).
-
-**Suggestion**: Add `@Validated` and custom validators:
-```java
-@PostMapping("/tools/execute")
-public Mono<ToolResult> executeTool(
-  @Valid @RequestBody ToolExecutionRequest request
-) {
-  // ...
-}
-```
-
-**Files affected**: Controllers in `mcp/` and `responses/`
-
----
-
-#### 8. **Hardcoded Timeouts**
-
-**Issue**: Timeouts are hardcoded in multiple places (15s, 30s, etc.)
-
-**Suggestion**: Move to configuration:
-```java
-@ConfigurationProperties("app.mcp")
-public class McpProperties {
-  Duration initializationTimeout = Duration.ofSeconds(10);
-  Duration operationTimeout = Duration.ofSeconds(15);
-  Duration idleTimeout = Duration.ofMinutes(30);
-}
-```
-
-**Files affected**: `McpSessionRegistry`, `McpClientService`, `ResponseStreamService`
-
----
-
-#### 9. **Database Migration Naming**
-
-**Issue**: Migration files have non-sequential numbering (V1, V2, V3, V5, V6, V7 - missing V4).
-
-**Finding**: Actually V4 exists (`V4__add_conversation_lifecycle.sql`), but the gap suggests possible confusion.
-
-**Suggestion**: Use timestamp-based naming for new migrations:
-```
-V20250101_120000__add_new_feature.sql
-```
-
----
-
-#### 10. **Missing Observability**
-
-**Issue**: No metrics or tracing for production monitoring.
-
-**Suggestion**: Add Micrometer metrics:
-```java
-@Timed("mcp.tool.call")
-public Mono<CallToolResult> callTool(...) {
-  // ...
-}
-
-// Metrics:
-// - mcp.tool.call.duration
-// - mcp.session.active.count
-// - chat.message.streaming.duration
-```
-
-**Files affected**: Core services
-
----
-
-### 🐛 Potential Bugs
-
-#### 1. **Memory Leak in MCP Sessions**
-
-**Issue**: If MCP server disconnects unexpectedly, session might remain in `ACTIVE` state and never be cleaned up.
-
-**Fix**: Add health check in idle timeout cleanup:
-```java
-@Scheduled(fixedDelay = 60_000)
-void cleanupStaleSessions() {
-  sessions.values().stream()
-    .filter(h -> h.state == ACTIVE && h.lastAccessed < threshold)
-    .forEach(h -> {
-      // Ping server or close session
-    });
-}
-```
-
-**Files affected**: `McpSessionRegistry.java`
-
----
-
-#### 2. **Race Condition in Tool Approval**
-
-**Issue**: If two users approve the same tool request simultaneously, tool might execute twice.
-
-**Fix**: Add idempotency key or mark request as "processing":
-```java
-AtomicBoolean processing = new AtomicBoolean(false);
-if (!processing.compareAndSet(false, true)) {
-  return Mono.error(new AlreadyProcessedException());
-}
-```
-
-**Files affected**: `ApprovalResponseController.java`, `ResponseStreamService.java`
-
----
-
-#### 3. **SSE Connection Not Closed on Error**
-
-**Issue**: Frontend SSE connection might remain open if backend throws error.
-
-**Fix**: Ensure cleanup in `onClose` callback:
-```typescript
-fetchEventSource("/api/responses/stream", {
-  // ...
-  onclose: () => {
-    // Always cleanup
-    controller.abort();
-  }
-});
-```
-
-**Files affected**: `chatStore.ts`
-
----
-
-### 📈 Architecture Improvements
-
-#### 1. **Implement Circuit Breaker**
-
-For MCP server connections to prevent cascading failures:
-```java
-@CircuitBreaker(name = "mcp-server")
-public Mono<McpAsyncClient> getOrCreateSession(String serverId) {
-  // ...
-}
-```
-
-#### 2. **Add Rate Limiting**
-
-For OpenAI API calls to prevent quota exhaustion:
-```java
-@RateLimiter(name = "openai")
-public Flux<ServerSentEvent<String>> streamResponses(...) {
-  // ...
-}
-```
-
-#### 3. **Implement Read-Through Cache**
-
-For MCP capabilities to reduce database load:
-```java
-Cache<String, McpCapabilities> capabilitiesCache = Caffeine.newBuilder()
-  .expireAfterWrite(5, TimeUnit.MINUTES)
-  .build();
-```
-
-#### 4. **Add GraphQL API**
-
-For frontend to fetch nested data more efficiently:
-```graphql
-query GetConversation($id: ID!) {
-  conversation(id: $id) {
-    id
-    title
-    messages {
-      id
-      content
-      toolCalls {
-        name
-        status
-      }
-    }
-  }
-}
-```
+**Note**: Detailed improvement recommendations have been converted to GitHub issues for better tracking and implementation. See [ISSUES_TO_CREATE.md](./ISSUES_TO_CREATE.md) for the complete list of 20 prioritized improvements.
+
+#### Summary of Key Issues
+
+**High Priority (6 issues)**:
+1. **Refactor ResponseStreamService** - Extract into focused services (800+ lines → 4 services)
+   - Reference: Issue #1 in ISSUES_TO_CREATE.md
+   - Files: `chatbot-backend/src/main/java/app/chatbot/responses/ResponseStreamService.java`
+
+2. **Refactor Frontend chatStore** - Split into 5 focused stores (1000+ lines)
+   - Reference: Issue #2 in ISSUES_TO_CREATE.md
+   - Files: `chatbot/src/store/chatStore.ts`
+
+3. **Fix Race Condition in McpSessionRegistry** - Use Mono.cache() for initialization
+   - Reference: Issue #3 in ISSUES_TO_CREATE.md
+   - Files: `chatbot-backend/src/main/java/app/chatbot/mcp/McpSessionRegistry.java`
+
+4. **Add Observability and Metrics** - Implement Micrometer for production monitoring
+   - Reference: Issue #8 in ISSUES_TO_CREATE.md
+   - Files: Core services
+
+5. **Add Frontend Unit Tests** - Currently no tests exist
+   - Reference: Issue #16 in ISSUES_TO_CREATE.md
+   - Files: `chatbot/src/` (entire frontend)
+
+6. **Add E2E Tests** - No automated verification of user flows
+   - Reference: Issue #17 in ISSUES_TO_CREATE.md
+
+**Medium Priority (8 issues)**:
+- Memory leak in failed MCP sessions
+- Missing circuit breaker for MCP connections
+- No in-memory caching for MCP capabilities
+- Tool approval race condition
+- Add Architecture Decision Records (ADRs)
+- Add sequence diagrams
+- Add GraphQL API
+- Add pagination
+
+**Low Priority (6 issues)**:
+- Hardcoded timeouts
+- Missing input validation
+- Inconsistent error handling
+- Duplicate SSE event parsing
+- Duplicate status enums
+- Optimize database queries
+
+**For complete details and implementation guidance**, refer to:
+- [ISSUES_TO_CREATE.md](./ISSUES_TO_CREATE.md) - All 20 issues with acceptance criteria
+- [CODE_QUALITY_REVIEW.md](./CODE_QUALITY_REVIEW.md) - Detailed analysis and recommendations
 
 ---
 
