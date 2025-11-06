@@ -83,6 +83,13 @@ public class ResponseStreamService {
                     Conversation conversation = tuple.getT1();
                     List<JsonNode> tools = tuple.getT2();
                     mergeTools(mutablePayload, tools);
+                    
+                    // Debug: Log the complete request payload to OpenAI
+                    try {
+                        log.info("🚀 Request to OpenAI Responses API: {}", objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(mutablePayload));
+                    } catch (Exception e) {
+                        log.warn("Failed to log request payload", e);
+                    }
 
                     StreamState state = new StreamState(conversation.getId());
 
@@ -133,6 +140,87 @@ public class ResponseStreamService {
 
                     return Flux.concat(Flux.just(initEvent), processed);
                 });
+    }
+
+    /**
+     * Sendet MCP Approval Response an OpenAI Responses API.
+     * 
+     * <p>Lädt Conversation.responseId aus DB und sendet Approval-Entscheidung
+     * mit previous_response_id zurück an OpenAI.
+     * 
+     * <p>OpenAI Responses API Format:
+     * <pre>{@code
+     * POST /responses
+     * {
+     *   "previous_response_id": "resp_12345",
+     *   "model": "gpt-4o",
+     *   "modalities": ["text"],
+     *   "input": [{
+     *     "type": "mcp_approval_response",
+     *     "approval_request_id": "apreq_67890",
+     *     "approve": true,
+     *     "reason": "User confirmed action"
+     *   }]
+     * }
+     * }</pre>
+     * 
+     * @param conversationId Conversation-ID für Response-ID-Lookup
+     * @param approvalRequestId Approval-Request-ID aus mcp_approval_request Event
+     * @param approve User-Entscheidung (true = approve, false = deny)
+     * @param reason Optional: Grund für Entscheidung
+     * @return Flux mit SSE-Events vom neuen Response-Stream
+     */
+    public Flux<ServerSentEvent<String>> sendApprovalResponse(
+            Long conversationId,
+            String approvalRequestId,
+            boolean approve,
+            String reason) {
+        
+        return conversationService.ensureConversation(conversationId, null)
+            .flatMapMany(conversation -> {
+                String previousResponseId = conversation.getResponseId();
+                
+                if (previousResponseId == null || previousResponseId.isEmpty()) {
+                    log.error("Cannot send approval response: no responseId found for conversation {}", conversationId);
+                    return Flux.error(new IllegalStateException("No responseId found for conversation"));
+                }
+                
+                // Build approval response input
+                ObjectNode approvalInput = objectMapper.createObjectNode();
+                approvalInput.put("type", "mcp_approval_response");
+                approvalInput.put("approval_request_id", approvalRequestId);
+                approvalInput.put("approve", approve);
+                if (reason != null && !reason.isEmpty()) {
+                    approvalInput.put("reason", reason);
+                }
+                
+                // Build request payload
+                ObjectNode payload = objectMapper.createObjectNode();
+                payload.put("previous_response_id", previousResponseId);
+                payload.put("model", "gpt-4o"); // Model from original request
+                payload.putArray("modalities").add("text");
+                payload.putArray("input").add(approvalInput);
+                payload.put("stream", true);
+                
+                log.info("🔔 Sending MCP Approval Response: conversation={}, approval_request_id={}, approve={}, previous_response_id={}", 
+                    conversationId, approvalRequestId, approve, previousResponseId);
+                
+                // Create new stream state for approval response
+                StreamState state = new StreamState(conversationId);
+                
+                // Send request to OpenAI
+                return webClient.post()
+                    .uri("/responses")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(payload)
+                    .retrieve()
+                    .bodyToFlux(SSE_TYPE)
+                    .flatMap(sseEvent -> handleEvent(sseEvent, state)
+                        .thenReturn(sseEvent))
+                    .doOnComplete(() -> log.info("✅ Approval response stream completed for conversation {}", conversationId))
+                    .doOnError(error -> log.error("❌ Approval response stream failed for conversation {}: {}", 
+                        conversationId, error.getMessage()));
+            });
     }
 
     private void enforceStreamingFlag(ObjectNode payload) {
@@ -213,6 +301,12 @@ public class ResponseStreamService {
             case "response.mcp_call.in_progress" -> updateToolCallStatus(payload, state, ToolCallStatus.IN_PROGRESS, null);
             case "response.mcp_call.completed" -> updateToolCallStatus(payload, state, ToolCallStatus.COMPLETED, null);
             case "response.mcp_call.failed" -> updateToolCallStatus(payload, state, ToolCallStatus.FAILED, payload.path("error").asText(null));
+            
+            // MCP approval events
+            case "response.mcp_approval_request" -> {
+                log.info("🎯 MCP APPROVAL REQUEST EVENT RECEIVED! Payload: {}", payload.toPrettyString());
+                yield handleMcpApprovalRequest(payload, state);
+            }
             
             // MCP list tools events
             case "response.mcp_list_tools.in_progress" -> handleMcpListToolsEvent(payload, "in_progress");
@@ -451,6 +545,41 @@ public class ResponseStreamService {
         int outputIndex = payload.path("output_index").asInt(0);
         log.debug("MCP list tools event: {} for item {} at output {}", status, itemId, outputIndex);
         // These events are informational - no persistence needed yet
+        return Mono.empty();
+    }
+
+    /**
+     * Handle MCP approval request event - pass through to frontend.
+     * 
+     * <p>Responses API Format:
+     * <pre>{@code
+     * {
+     *   "approval_request_id": "apreq_12345",
+     *   "server_label": "weather-api",
+     *   "tool_name": "delete_forecast",
+     *   "arguments": "{\"city\":\"Berlin\"}"
+     * }
+     * }</pre>
+     * 
+     * <p>This event signals that a tool requires user approval before execution.
+     * The frontend will display a dialog, and user decision is sent back via
+     * approval-response endpoint with previous_response_id.
+     * 
+     * @param payload Event payload
+     * @param state Current stream state
+     * @return Mono<Void> - no persistence needed, pure pass-through
+     */
+    private Mono<Void> handleMcpApprovalRequest(JsonNode payload, StreamState state) {
+        String approvalRequestId = payload.path("approval_request_id").asText(null);
+        String serverLabel = payload.path("server_label").asText(null);
+        String toolName = payload.path("tool_name").asText(null);
+        String arguments = payload.path("arguments").asText(null);
+        
+        log.info("🔔 MCP Approval Request: tool={}, server={}, approval_request_id={}", 
+            toolName, serverLabel, approvalRequestId);
+        
+        // Event is automatically passed through to frontend via SSE
+        // No persistence needed - approval decision handled by separate endpoint
         return Mono.empty();
     }
 

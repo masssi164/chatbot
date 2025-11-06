@@ -60,6 +60,14 @@ export interface ConversationSummary {
   completionReason?: string | null;
 }
 
+export interface ToolApprovalPolicyDto {
+  serverId: string;
+  toolName: string;
+  policy: "always" | "never";
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type Role = "USER" | "ASSISTANT" | "TOOL";
 
 /**
@@ -249,6 +257,23 @@ export const apiClient = {
   getMcpCapabilities(serverId: string): Promise<McpCapabilities> {
     return request<McpCapabilities>(`/mcp-servers/${serverId}/capabilities`);
   },
+
+  // Tool Approval Policies
+  getToolApprovalPolicies(serverId: string): Promise<ToolApprovalPolicyDto[]> {
+    return request<ToolApprovalPolicyDto[]>(`/mcp/servers/${serverId}/tools/approval-policies`);
+  },
+
+  setToolApprovalPolicy(serverId: string, toolName: string, policy: "always" | "never"): Promise<ToolApprovalPolicyDto> {
+    return request<ToolApprovalPolicyDto>(`/mcp/servers/${serverId}/tools/${toolName}/approval-policy`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ policy }),
+    });
+  },
+
+
 
   // N8n Integration
   getN8nConnection(): Promise<BackendN8nConnection> {

@@ -1,12 +1,12 @@
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import { create } from "zustand";
 import {
-    apiClient,
-    type ConversationDetail,
-    type ConversationStatus,
-    type ConversationSummary,
-    type MessageDto,
-    type ToolCallDto,
+  apiClient,
+  type ConversationDetail,
+  type ConversationStatus,
+  type ConversationSummary,
+  type MessageDto,
+  type ToolCallDto,
 } from "../services/apiClient";
 
 export type ChatRole = "user" | "assistant" | "tool";
@@ -52,6 +52,13 @@ export interface ToolCallState {
   updatedAt: number;
 }
 
+export interface ApprovalRequest {
+  approvalRequestId: string;
+  serverLabel: string;
+  toolName: string;
+  arguments?: string;
+}
+
 interface PrivateState {
   streamingOutputs: Record<number, { messageId: string; itemId?: string | null }>;
   toolCallIndex: Record<string, ToolCallState>;
@@ -63,6 +70,7 @@ interface ChatState extends PrivateState {
   conversationSummaries: ConversationSummary[];
   messages: ChatMessage[];
   toolCalls: ToolCallState[];
+  pendingApprovalRequest: ApprovalRequest | null;
   isStreaming: boolean;
   streamError?: string;
   
@@ -94,6 +102,7 @@ interface ChatState extends PrivateState {
   setPresencePenalty: (value: number | undefined) => void;
   setFrequencyPenalty: (value: number | undefined) => void;
   setSystemPrompt: (value: string | undefined) => void;
+  sendApprovalResponse: (approve: boolean, remember: boolean) => Promise<void>;
 }
 
 function createId() {
@@ -174,6 +183,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   conversationSummaries: [],
   messages: [],
   toolCalls: [],
+  pendingApprovalRequest: null,
   isStreaming: false,
   streamError: undefined,
   
@@ -395,6 +405,72 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setSystemPrompt(value: string | undefined) {
     set({ systemPrompt: value });
   },
+
+  async sendApprovalResponse(approve: boolean, remember: boolean) {
+    const state = get();
+    const { conversationId, pendingApprovalRequest } = state;
+    
+    if (!pendingApprovalRequest || conversationId === null) {
+      console.error("No pending approval request or conversation ID");
+      return;
+    }
+
+    // If "remember" is checked, update the policy
+    if (remember) {
+      const policy = approve ? "always" : "never";
+      try {
+        await apiClient.setToolApprovalPolicy(
+          pendingApprovalRequest.serverLabel,
+          pendingApprovalRequest.toolName,
+          policy
+        );
+      } catch (err) {
+        console.error("Failed to update approval policy:", err);
+      }
+    }
+
+    // Clear pending approval from state
+    set({ pendingApprovalRequest: null });
+
+    // Send approval response and reconnect to SSE stream
+    const controller = new AbortController();
+    set({ isStreaming: true, controller });
+
+    try {
+      await fetchEventSource(`${location.origin}/api/responses/approval-response`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          conversation_id: conversationId,
+          approval_request_id: pendingApprovalRequest.approvalRequestId,
+          approve,
+          reason: approve ? "User approved" : "User denied",
+        }),
+        signal: controller.signal,
+        async onopen(response) {
+          if (!response.ok && response.status !== 200) {
+            throw new Error(`Approval response failed with status ${response.status}`);
+          }
+        },
+        onmessage(event) {
+          handleStreamEvent(event.event ?? "message", event.data, set);
+        },
+        onerror(err) {
+          console.error("Approval response stream error:", err);
+          set({ isStreaming: false, streamError: String(err) });
+          throw err;
+        },
+        onclose() {
+          set({ isStreaming: false });
+        },
+      });
+    } catch (error) {
+      console.error("Failed to send approval response:", error);
+      set({ isStreaming: false, streamError: String(error) });
+    }
+  },
 }));
 
 function applyConversationDetail(detail: ConversationDetail) {
@@ -507,9 +583,29 @@ function handleStreamEvent(
       updateToolCallStatus(data, set, "failed", data?.error ?? null);
       break;
     
+    // MCP approval events
+    case "response.mcp_approval_request":
+      handleMcpApprovalRequest(data, set);
+      break;
+    
     default:
       break;
   }
+}
+
+function handleMcpApprovalRequest(data: any, set: any) {
+  if (!data) {
+    return;
+  }
+  
+  const approvalRequest: ApprovalRequest = {
+    approvalRequestId: data.approval_request_id ?? "",
+    serverLabel: data.server_label ?? "",
+    toolName: data.tool_name ?? "",
+    arguments: data.arguments,
+  };
+  
+  set({ pendingApprovalRequest: approvalRequest });
 }
 
 function handleTextDelta(data: any, set: any) {

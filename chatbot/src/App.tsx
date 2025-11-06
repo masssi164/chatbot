@@ -7,6 +7,7 @@ import N8nPanel from "./components/N8nPanel";
 import SettingsPanel from "./components/SettingsPanel";
 import SystemPromptPanel from "./components/SystemPromptPanel";
 import { ToolCallList } from "./components/ToolCallList";
+import { UserApprovalDialog } from "./components/UserApprovalDialog";
 import { useChatActions, useChatState } from "./hooks/useChatState";
 import { useMcpActions, useMcpState } from "./hooks/useMcpState";
 import type { ConversationStatus } from "./services/apiClient";
@@ -232,6 +233,16 @@ function App() {
             toolCalls={chatState.toolCalls}
             isLoading={chatState.isStreaming}
           />
+          
+          {/* Approval Request Dialog */}
+          {chatState.pendingApprovalRequest && (
+            <UserApprovalDialog
+              request={chatState.pendingApprovalRequest}
+              onApprove={(remember) => chatActions.sendApprovalResponse(true, remember)}
+              onDeny={(remember) => chatActions.sendApprovalResponse(false, remember)}
+            />
+          )}
+          
           <div ref={endRef} />
         </section>
 

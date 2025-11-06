@@ -218,6 +218,7 @@ function SettingsPanel({
                           capabilities={server.capabilities ?? null}
                           isLoading={server.syncStatus === "SYNCING"}
                           serverName={server.name}
+                          serverId={server.id}
                         />
                       </div>
                     )}

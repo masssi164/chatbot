@@ -13,6 +13,7 @@ export function useChatState() {
     // Message state
     messages: useChatStore((state) => state.messages),
     toolCalls: useChatStore((state) => state.toolCalls),
+    pendingApprovalRequest: useChatStore((state) => state.pendingApprovalRequest),
     
     // Stream state
     isStreaming: useChatStore((state) => state.isStreaming),
@@ -49,6 +50,7 @@ export function useChatActions() {
     // Message actions
     sendMessage: useChatStore((state) => state.sendMessage),
     abortStreaming: useChatStore((state) => state.abortStreaming),
+    sendApprovalResponse: useChatStore((state) => state.sendApprovalResponse),
     
     // Model configuration actions
     fetchModels: useChatStore((state) => state.fetchModels),
