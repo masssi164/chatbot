@@ -1,0 +1,27 @@
+# Development override - extends main docker-compose.yml
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  chatbot-backend:
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      # OpenAI/LiteLLM Configuration for dev
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-http://litellm:4000}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-sk-local-master}
+      # No DB_* variables needed - uses H2 in-memory in dev profile
+      JAVA_OPTS: "-Xmx512m -Xms256m -Dspring.profiles.active=dev"
+    # Dev dependencies: LiteLLM for local AI, n8n for workflows
+    depends_on:
+      litellm:
+        condition: service_healthy
+      n8n:
+        condition: service_healthy
+    healthcheck:
+      start_period: 30s  # Faster startup in dev mode
+
+  # Override to not depend on backend in dev mode
+  chatbot-frontend:
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8080}
+    depends_on:
+      - n8n  # Only depend on n8n, not backend in dev mode

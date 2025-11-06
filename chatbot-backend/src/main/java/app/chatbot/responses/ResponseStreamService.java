@@ -10,6 +10,11 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import app.chatbot.conversation.Conversation;
+import app.chatbot.conversation.ConversationStatus;
+import app.chatbot.conversation.ToolCall;
+import app.chatbot.conversation.ToolCallStatus;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
