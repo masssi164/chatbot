@@ -37,22 +37,99 @@ task buildAllImages {
 // Configure Docker Compose to build images before starting
 composeUp.dependsOn buildAllImages
 
-// Development mode - uses H2, only builds what's needed
+// Development mode - starts infrastructure in Docker, apps locally
 task developmentUp {
     group = 'application'
-    description = 'Starts services in development mode (H2 database)'
-    
-    dependsOn buildAllImages
-    dependsOn 'composeUp'
-    
-    doFirst {
-        // Use dev compose file
-        dockerCompose.useComposeFiles = ['docker-compose.yml', 'docker-compose.dev.yml']
-    }
+    description = 'Starts infrastructure (ollama, litellm, n8n, postgres-n8n) in Docker for local development'
     
     doLast {
-        // Reset to default compose files
-        dockerCompose.useComposeFiles = ['docker-compose.yml']
+        println "=== Starting Development Environment ==="
+        
+        // Step 1: Start infrastructure services with Docker Compose (no health check wait)
+        println "\n[1/4] Starting infrastructure services (ollama, litellm, n8n, postgres-n8n)..."
+        project.exec {
+            commandLine 'docker', 'compose', 'up', '-d', '--no-recreate', 'postgres-n8n', 'n8n', 'ollama', 'litellm'
+            ignoreExitValue = true
+        }
+        
+        // Step 2: Wait for ollama to be ready
+        // Note: We use curl here (not 'ollama list') because we're checking from the host,
+        // and curl is available on most development machines
+        println "\n[2/4] Waiting for Ollama to be ready..."
+        def ollamaReady = false
+        def maxAttempts = 60
+        def attempt = 0
+        while (!ollamaReady && attempt < maxAttempts) {
+            try {
+                project.exec {
+                    commandLine 'curl', '-fsS', 'http://localhost:11434/api/tags'
+                    ignoreExitValue = false
+                    errorOutput = new ByteArrayOutputStream()
+                    standardOutput = new ByteArrayOutputStream()
+                }
+                ollamaReady = true
+                println "  ✓ Ollama is ready"
+            } catch (Exception e) {
+                attempt++
+                if (attempt < maxAttempts) {
+                    print "."
+                    Thread.sleep(2000)
+                }
+            }
+        }
+        
+        if (!ollamaReady) {
+            println "\n  Warning: Ollama did not become ready in time. You may need to wait longer or check logs."
+        }
+        
+        // Step 3: Install Ollama models
+        println "\n[3/4] Installing Ollama models (this may take a while)..."
+        def models = ['llama3.2', 'mistral']  // Reduced set for faster startup
+        models.each { model ->
+            println "  - Installing model: ${model}"
+            try {
+                project.exec {
+                    commandLine 'docker', 'compose', 'exec', '-T', 'ollama', 'ollama', 'pull', model
+                    ignoreExitValue = true
+                }
+                println "    ✓ ${model} installed"
+            } catch (Exception e) {
+                println "    Warning: Failed to install model ${model}: ${e.message}"
+            }
+        }
+        
+        println "\n[4/4] Development infrastructure is ready!"
+        println """
+╔══════════════════════════════════════════════════════════════════╗
+║                  Development Environment Ready                    ║
+╠══════════════════════════════════════════════════════════════════╣
+║ Infrastructure services are running in Docker:                   ║
+║  • Ollama:       http://localhost:11434                          ║
+║  • LiteLLM:      http://localhost:4000                           ║
+║  • n8n:          http://localhost:5678                           ║
+║  • PostgreSQL:   localhost:5432 (for n8n)                        ║
+║                                                                   ║
+║ Next steps to run the applications:                              ║
+║                                                                   ║
+║  Terminal 1 - Backend (Spring Boot):                             ║
+║    ./gradlew :chatbot-backend:bootRun                            ║
+║    Backend will run on http://localhost:8080                     ║
+║    Use SPRING_PROFILES_ACTIVE=dev for H2 in-memory DB            ║
+║                                                                   ║
+║  Terminal 2 - Frontend (Vite dev server):                        ║
+║    cd chatbot && npm run dev                                     ║
+║    Frontend will run on http://localhost:5173                    ║
+║                                                                   ║
+║ To stop infrastructure services:                                 ║
+║    docker compose down                                           ║
+║                                                                   ║
+║ To check Ollama models:                                          ║
+║    ./gradlew ollamaListModels                                    ║
+║                                                                   ║
+║ To install additional models:                                    ║
+║    ./gradlew ollamaInstallModels                                 ║
+╚══════════════════════════════════════════════════════════════════╝
+"""
     }
 }
 
