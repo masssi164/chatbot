@@ -15,6 +15,7 @@ import app.chatbot.mcp.dto.McpCapabilitiesResponse;
 import io.modelcontextprotocol.spec.McpSchema;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import reactor.core.publisher.Mono;
 
 /**
  * REST-Controller für MCP-Tool-Operationen.
@@ -36,57 +37,65 @@ public class McpToolController {
      * @return Capabilities Response mit allen verfügbaren Features
      */
     @GetMapping("/servers/{serverId}/capabilities")
-    public ResponseEntity<McpCapabilitiesResponse> getCapabilities(@PathVariable String serverId) {
+    public Mono<ResponseEntity<McpCapabilitiesResponse>> getCapabilities(@PathVariable String serverId) {
         log.debug("Getting capabilities for MCP server: {}", serverId);
 
-        McpServer server = serverRepository.findByServerId(serverId)
-                .orElseThrow(() -> new IllegalArgumentException("MCP server not found: " + serverId));
+        return serverRepository.findByServerId(serverId)
+                .switchIfEmpty(Mono.error(new IllegalArgumentException("MCP server not found: " + serverId)))
+                .flatMap(this::fetchCapabilitiesForServer)
+                .onErrorResume(McpClientException.class, ex -> {
+                    log.error("Failed to get capabilities for server {}", serverId, ex);
+                    return Mono.just(ResponseEntity.<McpCapabilitiesResponse>status(500).body(null));
+                });
+    }
 
-        if (server.getStatus() != McpServerStatus.CONNECTED) {
-            return ResponseEntity.badRequest().build();
+    private Mono<ResponseEntity<McpCapabilitiesResponse>> fetchCapabilitiesForServer(McpServer server) {
+        if (server.getStatusEnum() != McpServerStatus.CONNECTED) {
+            return Mono.just(ResponseEntity.<McpCapabilitiesResponse>badRequest().build());
         }
 
-        try {
-            McpSchema.ServerCapabilities capabilities = clientService.getServerCapabilities(server.getServerId())
-                    .block(java.time.Duration.ofSeconds(5));
-            boolean supportsTools = capabilities != null && capabilities.tools() != null;
-            boolean supportsResources = capabilities != null && capabilities.resources() != null;
-            boolean supportsPrompts = capabilities != null && capabilities.prompts() != null;
+        Mono<McpSchema.ServerCapabilities> capabilitiesMono = clientService.getServerCapabilities(server.getServerId())
+                .timeout(java.time.Duration.ofSeconds(5))
+                .switchIfEmpty(Mono.empty());
+        
+        Mono<List<McpSchema.Tool>> toolsMono = clientService.listToolsAsync(server.getServerId())
+                .timeout(java.time.Duration.ofSeconds(15))
+                .defaultIfEmpty(List.of());
+        
+        Mono<List<McpSchema.Resource>> resourcesMono = clientService.listResourcesAsync(server.getServerId())
+                .timeout(java.time.Duration.ofSeconds(15))
+                .defaultIfEmpty(List.of());
+        
+        Mono<List<McpSchema.Prompt>> promptsMono = clientService.listPromptsAsync(server.getServerId())
+                .timeout(java.time.Duration.ofSeconds(15))
+                .defaultIfEmpty(List.of());
 
-            List<McpSchema.Tool> tools = clientService.listToolsAsync(server.getServerId())
-                    .block(java.time.Duration.ofSeconds(15));
-            if (tools == null) {
-                tools = List.of();
-            }
-            List<McpSchema.Resource> resources = clientService.listResourcesAsync(server.getServerId())
-                    .block(java.time.Duration.ofSeconds(15));
-            if (resources == null) {
-                resources = List.of();
-            }
-            List<McpSchema.Prompt> prompts = clientService.listPromptsAsync(server.getServerId())
-                    .block(java.time.Duration.ofSeconds(15));
-            if (prompts == null) {
-                prompts = List.of();
-            }
+        return Mono.zip(capabilitiesMono, toolsMono, resourcesMono, promptsMono)
+                .map(tuple -> {
+                    McpSchema.ServerCapabilities capabilities = tuple.getT1();
+                    List<McpSchema.Tool> tools = tuple.getT2();
+                    List<McpSchema.Resource> resources = tuple.getT3();
+                    List<McpSchema.Prompt> prompts = tuple.getT4();
 
-            McpCapabilitiesResponse response = McpCapabilitiesResponse.builder()
-                    .tools(tools.stream().map(McpCapabilitiesResponse.ToolInfo::from).toList())
-                    .resources(resources.stream().map(McpCapabilitiesResponse.ResourceInfo::from).toList())
-                    .prompts(prompts.stream().map(McpCapabilitiesResponse.PromptInfo::from).toList())
-                    .serverInfo(McpCapabilitiesResponse.ServerInfo.builder()
-                            .name(server.getName())
-                            .version("1.0")
-                            .supportsTools(supportsTools)
-                            .supportsResources(supportsResources)
-                            .supportsPrompts(supportsPrompts)
-                            .build())
-                    .build();
+                    boolean supportsTools = capabilities != null && capabilities.tools() != null;
+                    boolean supportsResources = capabilities != null && capabilities.resources() != null;
+                    boolean supportsPrompts = capabilities != null && capabilities.prompts() != null;
 
-            return ResponseEntity.ok(response);
-        } catch (McpClientException ex) {
-            log.error("Failed to get capabilities for server {}", serverId, ex);
-            return ResponseEntity.internalServerError().build();
-        }
+                    McpCapabilitiesResponse response = McpCapabilitiesResponse.builder()
+                            .tools(tools.stream().map(McpCapabilitiesResponse.ToolInfo::from).toList())
+                            .resources(resources.stream().map(McpCapabilitiesResponse.ResourceInfo::from).toList())
+                            .prompts(prompts.stream().map(McpCapabilitiesResponse.PromptInfo::from).toList())
+                            .serverInfo(McpCapabilitiesResponse.ServerInfo.builder()
+                                    .name(server.getName())
+                                    .version("1.0")
+                                    .supportsTools(supportsTools)
+                                    .supportsResources(supportsResources)
+                                    .supportsPrompts(supportsPrompts)
+                                    .build())
+                            .build();
+
+                    return ResponseEntity.ok(response);
+                });
     }
 
     /**
@@ -96,24 +105,24 @@ public class McpToolController {
      * @return Liste der verfügbaren Tools
      */
     @GetMapping("/servers/{serverId}/tools")
-    public ResponseEntity<List<McpSchema.Tool>> listTools(@PathVariable String serverId) {
+    public Mono<ResponseEntity<List<McpSchema.Tool>>> listTools(@PathVariable String serverId) {
         log.debug("Listing tools for MCP server: {}", serverId);
 
-        McpServer server = serverRepository.findByServerId(serverId)
-                .orElseThrow(() -> new IllegalArgumentException("MCP server not found: " + serverId));
+        return serverRepository.findByServerId(serverId)
+                .switchIfEmpty(Mono.error(new IllegalArgumentException("MCP server not found: " + serverId)))
+                .flatMap(server -> {
+                    if (server.getStatusEnum() != McpServerStatus.CONNECTED) {
+                        return Mono.just(ResponseEntity.badRequest().build());
+                    }
 
-        if (server.getStatus() != McpServerStatus.CONNECTED) {
-            return ResponseEntity.badRequest().build();
-        }
-
-        try {
-            List<McpSchema.Tool> tools = clientService.listToolsAsync(server.getServerId())
-                    .block(java.time.Duration.ofSeconds(15));
-            return ResponseEntity.ok(tools);
-        } catch (McpClientException ex) {
-            log.error("Failed to list tools for server {}", serverId, ex);
-            return ResponseEntity.internalServerError().build();
-        }
+                    return clientService.listToolsAsync(server.getServerId())
+                            .timeout(java.time.Duration.ofSeconds(15))
+                            .map(ResponseEntity::ok)
+                            .onErrorResume(McpClientException.class, ex -> {
+                                log.error("Failed to list tools for server {}", serverId, ex);
+                                return Mono.just(ResponseEntity.internalServerError().build());
+                            });
+                });
     }
 
     /**
@@ -124,34 +133,34 @@ public class McpToolController {
      * @return Das Ergebnis des Tool-Aufrufs
      */
     @PostMapping("/servers/{serverId}/tools/call")
-    public ResponseEntity<McpToolCallResponse> callTool(
+    public Mono<ResponseEntity<McpToolCallResponse>> callTool(
             @PathVariable String serverId,
             @RequestBody McpToolCallRequest request) {
 
         log.debug("Calling tool {} on MCP server: {}", request.toolName(), serverId);
 
-        McpServer server = serverRepository.findByServerId(serverId)
-                .orElseThrow(() -> new IllegalArgumentException("MCP server not found: " + serverId));
+        return serverRepository.findByServerId(serverId)
+                .switchIfEmpty(Mono.error(new IllegalArgumentException("MCP server not found: " + serverId)))
+                .flatMap(server -> {
+                    if (server.getStatusEnum() != McpServerStatus.CONNECTED) {
+                        return Mono.just(ResponseEntity.badRequest().build());
+                    }
 
-        if (server.getStatus() != McpServerStatus.CONNECTED) {
-            return ResponseEntity.badRequest().build();
-        }
-
-        try {
-            McpSchema.CallToolResult result = clientService.callToolAsync(
-                    server.getServerId(),
-                    request.toolName(),
-                    request.arguments()
-            ).block(java.time.Duration.ofSeconds(30));
-
-            return ResponseEntity.ok(new McpToolCallResponse(
-                    result.content(),
-                    result.isError()
-            ));
-        } catch (McpClientException ex) {
-            log.error("Failed to call tool {} on server {}", request.toolName(), serverId, ex);
-            return ResponseEntity.internalServerError().build();
-        }
+                    return clientService.callToolAsync(
+                            server.getServerId(),
+                            request.toolName(),
+                            request.arguments()
+                    )
+                            .timeout(java.time.Duration.ofSeconds(30))
+                            .map(result -> ResponseEntity.ok(new McpToolCallResponse(
+                                    result.content(),
+                                    result.isError()
+                            )))
+                            .onErrorResume(McpClientException.class, ex -> {
+                                log.error("Failed to call tool {} on server {}", request.toolName(), serverId, ex);
+                                return Mono.just(ResponseEntity.internalServerError().build());
+                            });
+                });
     }
 
     /**

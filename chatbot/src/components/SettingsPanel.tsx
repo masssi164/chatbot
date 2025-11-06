@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { McpTransportType } from "../services/apiClient";
 import type { ChatConfig } from "../store/chatStore";
 import type { McpServer, McpServerStatus } from "../store/mcpServerStore";
+import { McpCapabilitiesPanel } from "./McpCapabilitiesPanel";
 
 const statusLabels: Record<McpServerStatus, string> = {
   idle: "Idle",
@@ -209,6 +210,18 @@ function SettingsPanel({
                     >
                       Entfernen
                     </button>
+                    
+                    {/* Capabilities Panel - shown when server is active and connected */}
+                    {isActive && server.status === "connected" && (
+                      <div className="connector-capabilities">
+                        <McpCapabilitiesPanel
+                          capabilities={server.capabilities ?? null}
+                          isLoading={server.syncStatus === "SYNCING"}
+                          serverName={server.name}
+                          serverId={server.id}
+                        />
+                      </div>
+                    )}
                   </li>
                 );
               })}

@@ -1,19 +1,22 @@
 package app.chatbot.mcp;
 
-import java.util.Optional;
+import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 
-import org.springframework.data.jpa.repository.JpaRepository;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 /**
- * Repository für MCP Server Entities.
+ * Reactive Repository für MCP Server Entities mit R2DBC.
  * 
- * Event-Driven Architecture: Keine Pessimistic Locks mehr nötig!
- * ✅ Events werden sequenziell verarbeitet (Spring EventListener)
- * ✅ Idempotente Operationen (connectAndSync checkt selbst ob nötig)
- * ✅ Optimistic Locking nur für schnelle DB-Ops (<100ms)
+ * ✅ Fully reactive - alle Methoden geben Mono/Flux zurück
+ * ✅ Non-blocking I/O für bessere Skalierung mit SSE/Streaming
+ * ✅ Kompatibel mit McpAsyncClient (bereits reactive)
  */
-public interface McpServerRepository extends JpaRepository<McpServer, Long> {
-    Optional<McpServer> findByServerId(String serverId);
-    boolean existsByServerId(String serverId);
-    void deleteByServerId(String serverId);
+public interface McpServerRepository extends ReactiveCrudRepository<McpServer, Long> {
+    Mono<McpServer> findByServerId(String serverId);
+    Mono<Boolean> existsByServerId(String serverId);
+    Mono<Void> deleteByServerId(String serverId);
+    
+    // Alle Server sortiert nach Name
+    Flux<McpServer> findAllByOrderByNameAsc();
 }

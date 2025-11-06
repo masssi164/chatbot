@@ -2,64 +2,50 @@ package app.chatbot.mcp;
 
 import java.time.Instant;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.PrePersist;
-import jakarta.persistence.PreUpdate;
-import jakarta.persistence.Table;
-import jakarta.persistence.Version;
-import lombok.AccessLevel;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Column;
+import org.springframework.data.relational.core.mapping.Table;
 
-@Entity
-@Table(name = "mcp_servers")
-@Getter
-@Setter
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@Builder
 @NoArgsConstructor
+@AllArgsConstructor
+@Table("mcp_servers")
 public class McpServer {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Setter(AccessLevel.NONE)
     private Long id;
 
-    @Column(name = "server_id", nullable = false, unique = true, length = 64)
+    @Column("server_id")
     private String serverId;
 
-    @Column(nullable = false, length = 255)
     private String name;
 
-    @Column(nullable = false, length = 512)
+    @Column("base_url")
     private String baseUrl;
 
-    @Column(length = 1024)
+    @Column("api_key")
     private String apiKey;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    private McpServerStatus status = McpServerStatus.IDLE;
+    // Store enums as strings for R2DBC
+    private String status;
+    
+    private String transport;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    private McpTransport transport = McpTransport.STREAMABLE_HTTP;
-
-    @Column(nullable = false)
+    @Column("last_updated")
     private Instant lastUpdated;
 
     // ===== Optimistic Locking =====
     
     /**
      * Version für optimistic locking.
-     * Verhindert lost updates bei concurrent modifications.
+     * ⚠️ R2DBC has no @Version annotation - must be managed manually in service layer
      */
-    @Version
     private Long version;
 
     // ===== Capabilities Cache =====
@@ -68,21 +54,21 @@ public class McpServer {
      * Gecachte Tools als JSON Array.
      * Format: [{"name": "tool1", "description": "...", "inputSchema": {...}}, ...]
      */
-    @Column(name = "tools_cache", columnDefinition = "TEXT")
+    @Column("tools_cache")
     private String toolsCache;
 
     /**
      * Gecachte Resources als JSON Array.
      * Format: [{"uri": "file://...", "name": "...", "description": "...", "mimeType": "..."}, ...]
      */
-    @Column(name = "resources_cache", columnDefinition = "TEXT")
+    @Column("resources_cache")
     private String resourcesCache;
 
     /**
      * Gecachte Prompts als JSON Array.
      * Format: [{"name": "prompt1", "description": "...", "arguments": [...]}, ...]
      */
-    @Column(name = "prompts_cache", columnDefinition = "TEXT")
+    @Column("prompts_cache")
     private String promptsCache;
 
     // ===== Cache Metadata =====
@@ -91,35 +77,47 @@ public class McpServer {
      * Zeitpunkt der letzten erfolgreichen Synchronisation.
      * Wird gesetzt wenn syncCapabilitiesAsync() erfolgreich abgeschlossen ist.
      */
-    @Column(name = "last_synced_at")
+    @Column("last_synced_at")
     private Instant lastSyncedAt;
 
     /**
      * Status der Capabilities-Synchronisation.
      * Steuert Lifecycle des Caches (NEVER_SYNCED → SYNCING → SYNCED/SYNC_FAILED).
+     * Stored as string for R2DBC compatibility.
      */
-    @Enumerated(EnumType.STRING)
-    @Column(name = "sync_status", nullable = false, length = 20)
-    private SyncStatus syncStatus = SyncStatus.NEVER_SYNCED;
+    @Column("sync_status")
+    private String syncStatus;
 
     /**
      * Client-Metadaten für Debugging/Monitoring (optional).
      * Format: {"protocolVersion": "2024-11-05", "serverInfo": {...}, "capabilities": {...}}
      */
-    @Column(name = "client_metadata", columnDefinition = "TEXT")
+    @Column("client_metadata")
     private String clientMetadata;
 
-    // ===== Lifecycle Callbacks =====
+    // ===== Helper methods for enum conversion =====
 
-    @PrePersist
-    void onCreate() {
-        if (lastUpdated == null) {
-            lastUpdated = Instant.now();
-        }
+    public McpServerStatus getStatusEnum() {
+        return status != null ? McpServerStatus.valueOf(status) : McpServerStatus.IDLE;
     }
 
-    @PreUpdate
-    void onUpdate() {
-        lastUpdated = Instant.now();
+    public void setStatusEnum(McpServerStatus status) {
+        this.status = status != null ? status.name() : McpServerStatus.IDLE.name();
+    }
+
+    public McpTransport getTransportEnum() {
+        return transport != null ? McpTransport.valueOf(transport) : McpTransport.STREAMABLE_HTTP;
+    }
+
+    public void setTransportEnum(McpTransport transport) {
+        this.transport = transport != null ? transport.name() : McpTransport.STREAMABLE_HTTP.name();
+    }
+
+    public SyncStatus getSyncStatusEnum() {
+        return syncStatus != null ? SyncStatus.valueOf(syncStatus) : SyncStatus.NEVER_SYNCED;
+    }
+
+    public void setSyncStatusEnum(SyncStatus syncStatus) {
+        this.syncStatus = syncStatus != null ? syncStatus.name() : SyncStatus.NEVER_SYNCED.name();
     }
 }

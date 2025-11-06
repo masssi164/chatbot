@@ -35,7 +35,7 @@ public class McpConnectionEventListener {
      * WICHTIG: KEIN @Async hier!
      * - @EventListener OHNE @Async → Events werden sequenziell verarbeitet
      * - Verhindert parallele Connections für denselben Server
-     * - connectAndSync() läuft blocking, aber das ist OK (15-30s)
+     * - connectAndSync() gibt Mono<Void> zurück und wird mit .subscribe() gestartet (non-blocking)
      * - Frontend bekommt Response sofort (Controller published Event + return)
      * 
      * Alternative mit @Async würde zu Race Conditions führen:
@@ -46,15 +46,15 @@ public class McpConnectionEventListener {
     @EventListener
     public void handleServerUpdated(McpServerUpdatedEvent event) {
         String serverId = event.serverId();
-        log.info("Received McpServerUpdated event for server {}, triggering connection (blocking)", serverId);
+        log.info("🔔 Received McpServerUpdated event for server {}, triggering connection (non-blocking)", serverId);
         
-        try {
-            // Idempotente Operation: Checkt selbst ob Connection nötig ist
-            mcpConnectionService.connectAndSync(serverId);
-            log.info("Successfully completed connection for server {}", serverId);
-        } catch (Exception ex) {
-            log.error("Failed to connect server {} after update event: {}", serverId, ex.getMessage(), ex);
-            // Status wurde bereits auf ERROR gesetzt in McpConnectionService
-        }
+        // Start connection process asynchronously (fire-and-forget)
+        log.info("🔌 Starting non-blocking connection process for server {}...", serverId);
+        mcpConnectionService.connectAndSync(serverId)
+                .subscribe(
+                        null, // onNext (not used for Mono<Void>)
+                        ex -> log.error("❌ Failed to connect server {} after update event: {}", serverId, ex.getMessage(), ex),
+                        () -> log.info("✅ Successfully completed connection for server {}", serverId)
+                );
     }
 }

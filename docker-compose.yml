@@ -45,6 +45,53 @@ services:
       timeout: 5s
       retries: 10
 
+  chatbot-backend:
+    build:
+      context: ./chatbot-backend
+      dockerfile: Dockerfile
+    image: app.chatbot/chatbot-backend:latest
+    restart: unless-stopped
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
+      SPRING_DATASOURCE_URL: jdbc:h2:mem:chatbotdb
+      # Add other Spring Boot properties as needed
+      JAVA_OPTS: "-Xmx512m -Xms256m"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 3s
+      start_period: 40s
+      retries: 3
+    depends_on:
+      n8n:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  chatbot-frontend:
+    build:
+      context: ./chatbot
+      dockerfile: Dockerfile
+    image: app.chatbot/chatbot-frontend:latest
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    environment:
+      # Vite environment variables for API URL
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8080}
+      VITE_N8N_BASE_URL: ${VITE_N8N_BASE_URL:-http://localhost:5678}
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    depends_on:
+      chatbot-backend:
+        condition: service_healthy
+
 volumes:
   n8n_data:
   postgres_data:

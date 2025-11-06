@@ -37,18 +37,18 @@ public class McpCapabilitiesScheduler {
     public void syncAllConnectedServers() {
         log.info("Starting scheduled sync of all connected MCP servers");
         
-        var connectedServers = repository.findAll().stream()
-                .filter(server -> server.getStatus() == McpServerStatus.CONNECTED)
-                .toList();
+        repository.findAll()
+                .filter(server -> server.getStatusEnum() == McpServerStatus.CONNECTED)
+                .collectList()
+                .flatMapMany(connectedServers -> {
+                    if (connectedServers.isEmpty()) {
+                        log.debug("No connected MCP servers found, skipping scheduled sync");
+                        return Flux.empty();
+                    }
 
-        if (connectedServers.isEmpty()) {
-            log.debug("No connected MCP servers found, skipping scheduled sync");
-            return;
-        }
-
-        log.info("Syncing capabilities for {} connected server(s) SEQUENTIALLY", connectedServers.size());
-
-        Flux.fromIterable(connectedServers)
+                    log.info("Syncing capabilities for {} connected server(s) SEQUENTIALLY", connectedServers.size());
+                    return Flux.fromIterable(connectedServers);
+                })
                 .concatMap(server -> serverService.syncCapabilitiesAsync(server.getServerId())
                         .doOnSuccess(synced -> log.debug("Successfully synced server {} in scheduled task", 
                             server.getServerId()))
@@ -60,8 +60,6 @@ public class McpCapabilitiesScheduler {
                         .timeout(Duration.ofSeconds(30)) // Timeout pro Server
                 )
                 .collectList()
-                .block(Duration.ofMinutes(10)); // Max 10 Min für alle Server
-
-        log.info("Completed scheduled sync of all connected MCP servers");
+                .subscribe(results -> log.info("Completed scheduled sync of {} MCP servers", results.size()));
     }
 }

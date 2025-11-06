@@ -109,8 +109,7 @@ export const useMcpServerStore = create<McpServerState>((set, get) => ({
         activeServerId: state.activeServerId ?? servers[0]?.id ?? null,
       }));
       
-      // Connect to SSE stream after loading initial servers
-      get().connectToStatusStream();
+      // Do NOT auto-connect to SSE here - it's called separately in App.tsx
     } catch (error) {
       console.error("Failed to load MCP servers", error);
       set({ isSyncing: false });
@@ -185,6 +184,7 @@ export const useMcpServerStore = create<McpServerState>((set, get) => ({
           ? updates.apiKey?.trim() || undefined
           : current.apiKey,
       status: toBackendStatus(updates.status ?? current.status),
+      transport: current.transport, // Preserve existing transport
     };
 
     const updated = await apiClient.updateMcpServer(serverId, payload);

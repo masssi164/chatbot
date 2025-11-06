@@ -1,11 +1,11 @@
 import {
-  forwardRef,
-  useImperativeHandle,
-  useMemo,
-  useRef,
-  useState,
-  type ChangeEvent,
-  type FormEvent,
+    forwardRef,
+    useImperativeHandle,
+    useMemo,
+    useRef,
+    useState,
+    type ChangeEvent,
+    type FormEvent,
 } from 'react'
 
 interface CompletionParametersProps {
@@ -20,6 +20,7 @@ interface ChatInputProps {
   prompt: string
   onPromptChange: (value: string) => void
   onSend: (value: string) => Promise<void> | void
+  onAbort?: () => void
   isLoading: boolean
   currentModel: string
   availableModels: string[]
@@ -45,6 +46,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       prompt,
       onPromptChange,
       onSend,
+      onAbort,
       isLoading,
       currentModel,
       availableModels,
@@ -201,6 +203,16 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
         >
           {isLoading ? 'Sending…' : 'Send'}
         </button>
+        {onAbort && (
+          <button
+            type="button"
+            className="secondary"
+            onClick={onAbort}
+            disabled={!isLoading}
+          >
+            Stop
+          </button>
+        )}
       </div>
       {showParameters && (
         <div className="payload-panel">

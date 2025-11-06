@@ -1,0 +1,69 @@
+plugins {
+    id 'com.avast.gradle.docker-compose' version '0.17.19'
+}
+
+// Docker Compose configuration
+dockerCompose {
+    useComposeFiles = ['docker-compose.yml']
+    
+    // Wait for services to be healthy before proceeding
+    waitForTcpPorts = true
+    waitForHealthyStateTimeout = java.time.Duration.ofMinutes(5)
+    
+    // Don't stop containers automatically (useful for development)
+    stopContainers = false
+    
+    // Remove containers on down
+    removeContainers = true
+    removeVolumes = false
+    
+    // Capture container output for debugging
+    captureContainersOutput = true
+    
+    // Project name
+    projectName = 'chatbot'
+}
+
+// Task to start all services
+task startAll {
+    group = 'application'
+    description = 'Starts all services (docker-compose + builds)'
+    
+    dependsOn 'composeUp'
+    dependsOn ':chatbot-backend:build'
+    dependsOn ':chatbot:npmInstall'
+}
+
+// Task to stop all services
+task stopAll {
+    group = 'application'
+    description = 'Stops all services'
+    
+    dependsOn 'composeDown'
+}
+
+// Expose compose tasks at root level
+task up {
+    group = 'docker'
+    description = 'Starts docker-compose services'
+    dependsOn 'composeUp'
+}
+
+task down {
+    group = 'docker'
+    description = 'Stops docker-compose services'
+    dependsOn 'composeDown'
+}
+
+task restart {
+    group = 'docker'
+    description = 'Restarts docker-compose services'
+    dependsOn 'composeDown', 'composeUp'
+}
+
+// Configure subprojects
+subprojects {
+    repositories {
+        mavenCentral()
+    }
+}

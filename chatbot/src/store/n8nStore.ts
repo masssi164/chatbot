@@ -1,12 +1,12 @@
 import { create } from "zustand";
 import {
-  ApiError,
-  apiClient,
-  type BackendN8nConnection,
-  type BackendN8nConnectionRequest,
-  type BackendN8nConnectionStatus,
-  type BackendN8nWorkflowList,
-  type BackendN8nWorkflowSummary,
+    ApiError,
+    apiClient,
+    type BackendN8nConnection,
+    type BackendN8nConnectionRequest,
+    type BackendN8nConnectionStatus,
+    type BackendN8nWorkflowList,
+    type BackendN8nWorkflowSummary,
 } from "../services/apiClient";
 import logger from "../utils/logger";
 
@@ -51,7 +51,7 @@ function mapConnection(dto: BackendN8nConnection) {
   return {
     baseUrl: dto.baseUrl,
     configured: dto.configured,
-    updatedAt: dto.updatedAt ? Date.parse(dto.updatedAt) : null,
+    updatedAt: dto.updatedAt ?? null,
   };
 }
 
@@ -60,8 +60,8 @@ function mapWorkflow(dto: BackendN8nWorkflowSummary): N8nWorkflow {
     id: dto.id,
     name: dto.name,
     active: dto.active,
-    updatedAt: dto.updatedAt ? Date.parse(dto.updatedAt) : null,
-    tagIds: dto.tagIds ?? [],
+    updatedAt: dto.updatedAt ?? null,
+    tagIds: dto.tags?.map((tag) => tag.id) ?? [],
   };
 }
 
@@ -149,8 +149,8 @@ export const useN8nStore = create<N8nState>((set, get) => ({
     }
     set({ isLoadingWorkflows: true, error: undefined });
     try {
-      const response: BackendN8nWorkflowList = await apiClient.listN8nWorkflows(options);
-      const items = response.items?.map(mapWorkflow) ?? [];
+      const response: BackendN8nWorkflowList = await apiClient.getN8nWorkflows(options);
+      const items = response.data?.map(mapWorkflow) ?? [];
       set({
         workflows: items,
         nextCursor: response.nextCursor ?? null,

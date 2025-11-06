@@ -1,0 +1,30 @@
+.tool-call-list {
+  margin: 16px 0;
+  padding: 0;
+}
+
+.tool-call-list h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-color, #333);
+  margin: 0 0 12px 0;
+  padding: 0 8px;
+}
+
+.tool-call-list-loading,
+.tool-call-list-error {
+  padding: 12px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.tool-call-list-loading {
+  background: var(--bg-secondary, #f5f5f5);
+  color: var(--text-muted, #666);
+}
+
+.tool-call-list-error {
+  background: #ffebee;
+  color: #c62828;
+  border: 1px solid #ef9a9a;
+}

@@ -1,0 +1,129 @@
+.user-approval-dialog {
+  background: var(--surface-secondary);
+  border: 2px solid var(--accent-color, #0066cc);
+  border-radius: 8px;
+  padding: 1rem;
+  margin: 0.5rem 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.approval-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.approval-icon {
+  font-size: 1.5rem;
+}
+
+.approval-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.approval-body {
+  margin-bottom: 1rem;
+}
+
+.approval-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.approval-field {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.approval-label {
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  min-width: 80px;
+}
+
+.approval-value {
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+.approval-arguments {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.approval-json {
+  background: var(--surface-primary);
+  padding: 0.75rem;
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  overflow-x: auto;
+  margin-top: 0.5rem;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  color: var(--text-primary);
+}
+
+.approval-remember {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.approval-remember input[type="checkbox"] {
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+}
+
+.approval-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.approval-button {
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  border: none;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.approval-deny {
+  background: var(--surface-tertiary);
+  color: var(--text-primary);
+}
+
+.approval-deny:hover {
+  background: var(--surface-secondary);
+}
+
+.approval-approve {
+  background: var(--accent-color, #0066cc);
+  color: white;
+}
+
+.approval-approve:hover {
+  background: var(--accent-hover, #0052a3);
+}
+
+.approval-button:active {
+  transform: translateY(1px);
+}
