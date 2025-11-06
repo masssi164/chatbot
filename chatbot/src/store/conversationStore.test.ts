@@ -11,6 +11,29 @@ vi.mock('../services/apiClient', () => ({
   },
 }));
 
+// Helper to create mock conversation details
+const createMockConversation = (overrides = {}) => ({
+  id: 1,
+  title: 'Test Chat',
+  createdAt: '2024-01-01',
+  updatedAt: '2024-01-01',
+  messages: [],
+  toolCalls: [],
+  status: 'CREATED' as const,
+  ...overrides,
+});
+
+// Helper to create mock conversation summaries
+const createMockSummary = (overrides = {}) => ({
+  id: 1,
+  title: 'Chat 1',
+  createdAt: '2024-01-01',
+  updatedAt: '2024-01-01',
+  status: 'COMPLETED' as const,
+  messageCount: 5,
+  ...overrides,
+});
+
 describe('conversationStore', () => {
   beforeEach(() => {
     // Reset store state before each test
@@ -34,14 +57,7 @@ describe('conversationStore', () => {
   });
 
   it('should ensure conversation creates new one if none exists', async () => {
-    const mockConversation = { 
-      id: 1, 
-      title: 'New Chat', 
-      createdAt: '2024-01-01', 
-      updatedAt: '2024-01-01',
-      messages: [],
-      toolCalls: []
-    };
+    const mockConversation = createMockConversation({ title: 'New Chat' });
     vi.mocked(apiClient.createConversation).mockResolvedValue(mockConversation);
 
     await useConversationStore.getState().ensureConversation();
@@ -62,8 +78,8 @@ describe('conversationStore', () => {
 
   it('should load conversations list', async () => {
     const mockConversations = [
-      { id: 1, title: 'Chat 1', createdAt: '2024-01-01', updatedAt: '2024-01-01', status: 'COMPLETED' as const, messageCount: 5 },
-      { id: 2, title: 'Chat 2', createdAt: '2024-01-02', updatedAt: '2024-01-02', status: 'COMPLETED' as const, messageCount: 3 },
+      createMockSummary({ id: 1, title: 'Chat 1', messageCount: 5 }),
+      createMockSummary({ id: 2, title: 'Chat 2', messageCount: 3, createdAt: '2024-01-02', updatedAt: '2024-01-02' }),
     ];
     vi.mocked(apiClient.listConversations).mockResolvedValue(mockConversations);
 
@@ -96,15 +112,8 @@ describe('conversationStore', () => {
   });
 
   it('should create a new conversation', async () => {
-    const mockConversation = { id: 1, title: 'Custom Title', createdAt: '2024-01-01', updatedAt: '2024-01-01', messages: [], toolCalls: [], status: 'CREATED' as const };
+    const mockConversation = createMockConversation({ title: 'Custom Title' });
     vi.mocked(apiClient.createConversation).mockResolvedValue(mockConversation);
-    vi.mocked(apiClient.listConversations).mockResolvedValue([{ 
-      id: 1, 
-      title: 'Custom Title', 
-      createdAt: '2024-01-01', 
-      updatedAt: '2024-01-01',
-      messageCount: 0
-    }]);
 
     const id = await useConversationStore.getState().createConversation('Custom Title');
 
@@ -113,6 +122,9 @@ describe('conversationStore', () => {
     const state = useConversationStore.getState();
     expect(state.conversationId).toBe(1);
     expect(state.conversationTitle).toBe('Custom Title');
+    // Verify conversation was added to summaries list
+    expect(state.conversationSummaries).toHaveLength(1);
+    expect(state.conversationSummaries[0].title).toBe('Custom Title');
   });
 
   it('should set current conversation', () => {

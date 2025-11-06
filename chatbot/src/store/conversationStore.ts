@@ -85,8 +85,19 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         loading: false,
       });
       
-      // Also refresh the conversations list
-      await get().loadConversations();
+      // Add new conversation to the existing list instead of re-fetching all
+      set((state) => ({
+        conversationSummaries: [
+          {
+            id: conversation.id,
+            title: conversation.title,
+            createdAt: conversation.createdAt,
+            updatedAt: conversation.updatedAt,
+            messageCount: 0,
+          },
+          ...state.conversationSummaries,
+        ],
+      }));
       
       return conversation.id;
     } catch (error) {
