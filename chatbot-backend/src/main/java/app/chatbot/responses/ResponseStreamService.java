@@ -182,6 +182,11 @@ public class ResponseStreamService {
             return Mono.empty();
         }
 
+        // Log all MCP-related events for debugging
+        if (eventName.startsWith("response.mcp_call")) {
+            log.debug("🔍 MCP Event: {} - payload: {}", eventName, payload.toPrettyString());
+        }
+
         return switch (eventName) {
             // Lifecycle events
             case "response.created" -> handleResponseCreated(payload, state);
@@ -286,6 +291,8 @@ public class ResponseStreamService {
         }
 
         if ("mcp_call".equals(type)) {
+            log.info("📞 MCP Tool Call detected - item_id: {}, outputIndex: {}", itemId, outputIndex);
+            
             Map<String, Object> attributes = new HashMap<>();
             attributes.put("name", item.path("name").asText(null));
             
@@ -310,7 +317,10 @@ public class ResponseStreamService {
             }
 
             return conversationService.upsertToolCall(state.conversationId, itemId, ToolCallType.MCP, outputIndex, attributes)
-                    .doOnNext(toolCall -> state.toolCalls.put(itemId, ToolCallTracker.from(toolCall)))
+                    .doOnNext(toolCall -> {
+                        state.toolCalls.put(itemId, ToolCallTracker.from(toolCall));
+                        log.info("✅ MCP Tool Call upserted - item_id: {}, status: {}", itemId, toolCall.getStatus());
+                    })
                     .then();
         }
 
@@ -382,6 +392,9 @@ public class ResponseStreamService {
         int outputIndex = payload.path("output_index").asInt(0);
         String arguments = payload.path("arguments").asText("");
 
+        log.info("📝 MCP Arguments Done - item_id: {}, arguments length: {}, outputIndex: {}", 
+                itemId, arguments.length(), outputIndex);
+
         ToolCallTracker tracker = state.toolCalls.computeIfAbsent(itemId, ignored -> new ToolCallTracker());
         if (!arguments.isEmpty()) {
             tracker.arguments = new StringBuilder(arguments);
@@ -423,8 +436,13 @@ public class ResponseStreamService {
             type = tracker.type;
         }
 
+        log.info("🔄 Updating Tool Call status - item_id: {}, status: {}, outputIndex: {}", itemId, status, outputIndex);
+        
         return conversationService.upsertToolCall(state.conversationId, itemId, type, outputIndex, attributes)
-                .doOnNext(toolCall -> state.toolCalls.put(itemId, ToolCallTracker.from(toolCall)))
+                .doOnNext(toolCall -> {
+                    state.toolCalls.put(itemId, ToolCallTracker.from(toolCall));
+                    log.info("✅ Tool Call status updated - item_id: {}, final_status: {}", itemId, toolCall.getStatus());
+                })
                 .then();
     }
 

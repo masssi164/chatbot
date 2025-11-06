@@ -1,0 +1,230 @@
+/* ToolCallDetails Component Styles */
+
+.tool-call-details {
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 8px;
+  margin: 8px 0;
+  background: var(--bg-secondary, #f9f9f9);
+  transition: all 0.2s ease;
+}
+
+.tool-call-details:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.tool-call-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: white;
+  border: none;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  border-bottom: 1px solid var(--border-color, #e0e0e0);
+}
+
+.tool-call-header:hover {
+  background-color: var(--bg-secondary, #f9f9f9);
+}
+
+.tool-call-header:focus {
+  outline: 2px solid #2196f3;
+  outline-offset: -2px;
+}
+
+.tool-call-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.tool-call-icon {
+  font-size: 18px;
+}
+
+.tool-call-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary, #333);
+}
+
+.tool-call-type {
+  font-size: 11px;
+  padding: 2px 6px;
+  background: var(--badge-bg, #e0e0e0);
+  border-radius: 4px;
+  color: var(--badge-text, #666);
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+.tool-call-status {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.status-completed {
+  background: #d4edda;
+  color: #155724;
+}
+
+.status-in-progress {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.status-failed {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.status-unknown {
+  background: #e2e3e5;
+  color: #383d41;
+}
+
+.expand-icon {
+  font-size: 12px;
+  color: var(--icon-color, #666);
+  transition: transform 0.2s ease;
+}
+
+.tool-call-body {
+  padding: 0 16px 16px 16px;
+  border-top: 1px solid var(--border-light, #f0f0f0);
+}
+
+.tool-call-section {
+  margin-top: 12px;
+}
+
+.tool-call-section h4 {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary, #666);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.tool-call-section h5 {
+  margin: 8px 0 4px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #666);
+}
+
+.tool-call-metadata {
+  display: grid;
+  gap: 6px;
+}
+
+.metadata-row {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.metadata-label {
+  font-weight: 600;
+  color: var(--text-secondary, #666);
+  min-width: 100px;
+}
+
+.metadata-value {
+  color: var(--text-primary, #333);
+  font-family: 'Monaco', 'Consolas', monospace;
+  font-size: 12px;
+}
+
+.tool-call-json {
+  background: var(--code-bg, #2d2d2d);
+  color: var(--code-text, #f8f8f2);
+  padding: 12px;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-family: 'Monaco', 'Consolas', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.tool-call-raw {
+  margin-top: 12px;
+  border-top: 1px solid var(--border-light, #f0f0f0);
+  padding-top: 12px;
+}
+
+.tool-call-raw summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #666);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 4px 0;
+  user-select: none;
+}
+
+.tool-call-raw summary:hover {
+  color: var(--text-primary, #333);
+}
+
+.tool-call-json-raw {
+  background: var(--code-bg-raw, #f5f5f5);
+  color: var(--code-text-raw, #333);
+  padding: 8px;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-family: 'Monaco', 'Consolas', monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  margin: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color, #e0e0e0);
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .tool-call-details {
+    background: var(--bg-secondary-dark, #2a2a2a);
+    border-color: var(--border-dark, #444);
+  }
+
+  .tool-call-header:hover {
+    background: var(--bg-hover-dark, #333);
+  }
+
+  .tool-call-name {
+    color: var(--text-primary-dark, #f0f0f0);
+  }
+
+  .tool-call-type {
+    background: var(--badge-bg-dark, #444);
+    color: var(--badge-text-dark, #aaa);
+  }
+
+  .metadata-label {
+    color: var(--text-secondary-dark, #aaa);
+  }
+
+  .metadata-value {
+    color: var(--text-primary-dark, #f0f0f0);
+  }
+
+  .tool-call-json-raw {
+    background: var(--code-bg-raw-dark, #1e1e1e);
+    color: var(--code-text-raw-dark, #d4d4d4);
+    border-color: var(--border-dark, #444);
+  }
+}

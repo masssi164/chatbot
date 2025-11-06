@@ -6,6 +6,7 @@ import Modal from "./components/Modal";
 import N8nPanel from "./components/N8nPanel";
 import SettingsPanel from "./components/SettingsPanel";
 import SystemPromptPanel from "./components/SystemPromptPanel";
+import { ToolCallList } from "./components/ToolCallList";
 import { useChatActions, useChatState } from "./hooks/useChatState";
 import { useMcpActions, useMcpState } from "./hooks/useMcpState";
 import type { ConversationStatus } from "./services/apiClient";
@@ -236,6 +237,11 @@ function App() {
 
         <aside className="tool-panel">
           <h2>Tool Calls</h2>
+          
+          {/* New detailed tool call view with expandable DTOs */}
+          <ToolCallList conversationId={chatState.conversationId} />
+          
+          {/* Legacy simple tool call list (keeping for now) */}
           {chatState.toolCalls.length === 0 ? (
             <p className="tool-empty">No tool activity yet.</p>
           ) : (

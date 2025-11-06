@@ -480,6 +480,10 @@ function handleStreamEvent(
       handleOutputItemAdded(data, set);
       break;
     
+    case "response.output_item.done":
+      handleOutputItemDone(data, set);
+      break;
+    
     // Function/MCP call events
     case "response.function_call_arguments.delta":
       updateToolCallArguments(data, set, "function");
@@ -487,10 +491,10 @@ function handleStreamEvent(
     case "response.function_call_arguments.done":
       updateToolCallArguments(data, set, "function", true);
       break;
-    case "response.mcp_call.arguments.delta":
+    case "response.mcp_call_arguments.delta":
       updateToolCallArguments(data, set, "mcp");
       break;
-    case "response.mcp_call.arguments.done":
+    case "response.mcp_call_arguments.done":
       updateToolCallArguments(data, set, "mcp", true);
       break;
     case "response.mcp_call.in_progress":
@@ -640,6 +644,49 @@ function handleOutputItemAdded(data: any, set: any) {
   });
 }
 
+function handleOutputItemDone(data: any, set: any) {
+  if (!data || !data.item) {
+    return;
+  }
+
+  const item = data.item;
+  const type = item.type;
+  if (type !== "function_call" && type !== "mcp_call") {
+    return;
+  }
+
+  const outputIndex = typeof data.output_index === "number" ? data.output_index : undefined;
+  const itemId = item.id ?? item.item_id ?? createId();
+
+  set((state: ChatState) => {
+    const toolCallIndex = { ...state.toolCallIndex };
+    const existing = toolCallIndex[itemId] ?? {
+      itemId,
+      type: type === "function_call" ? "function" : "mcp",
+      status: "completed" as const,
+      updatedAt: Date.now(),
+    };
+
+    const updated: ToolCallState = {
+      ...existing,
+      name: item.name ?? existing.name,
+      type: type === "function_call" ? "function" : "mcp",
+      status: item.status === "completed" ? "completed" : existing.status,
+      arguments: existing.arguments ?? null,
+      result: item.output ? JSON.stringify(item.output) : existing.result ?? null,
+      outputIndex: outputIndex ?? existing.outputIndex,
+      error: item.error ? JSON.stringify(item.error) : existing.error ?? null,
+      updatedAt: Date.now(),
+    };
+
+    toolCallIndex[itemId] = updated;
+    return {
+      toolCallIndex,
+      toolCalls: normalizeToolCalls(toolCallIndex),
+    };
+  });
+}
+
 function updateToolCallArguments(
   data: any,
   set: any,
@@ -655,6 +702,8 @@ function updateToolCallArguments(
   const argumentsJson = typeof data.arguments === "string" ? data.arguments : undefined;
   const outputIndex = typeof data.output_index === "number" ? data.output_index : undefined;
 
+  console.log(`🔍 updateToolCallArguments - itemId: ${itemId}, finalize: ${finalize}, argumentsJson: ${argumentsJson}, delta: ${delta}`);
+
   set((state: ChatState) => {
     const toolCallIndex = { ...state.toolCallIndex };
     const existing = toolCallIndex[itemId] ?? {
@@ -667,6 +716,8 @@ function updateToolCallArguments(
     const combined = finalize
       ? argumentsJson ?? existing.arguments ?? ""
       : `${existing.arguments ?? ""}${delta}`;
+
+    console.log(`🔍 updateToolCallArguments - existing.arguments: ${existing.arguments}, combined: ${combined}`);
 
     toolCallIndex[itemId] = {
       ...existing,
