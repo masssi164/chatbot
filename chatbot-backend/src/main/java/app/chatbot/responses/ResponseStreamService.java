@@ -28,7 +28,6 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import app.chatbot.config.OpenAiProperties;
 import app.chatbot.conversation.Conversation;
 import app.chatbot.conversation.ConversationService;
-import app.chatbot.conversation.ConversationStatus;
 import app.chatbot.conversation.MessageRole;
 import app.chatbot.conversation.ToolCall;
 import app.chatbot.conversation.ToolCallStatus;
