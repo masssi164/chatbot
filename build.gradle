@@ -40,7 +40,7 @@ composeUp.dependsOn buildAllImages
 // Development mode - starts infrastructure in Docker, apps locally
 task developmentUp {
     group = 'application'
-    description = 'Starts infrastructure (ollama, litellm, n8n, postgres-n8n) with Docker, chatbot-backend with bootJar, and frontend with npm run dev'
+    description = 'Starts infrastructure (ollama, litellm, n8n, postgres-n8n) in Docker for local development'
     
     doLast {
         println "=== Starting Development Environment ==="
@@ -53,6 +53,8 @@ task developmentUp {
         }
         
         // Step 2: Wait for ollama to be ready
+        // Note: We use curl here (not 'ollama list') because we're checking from the host,
+        // and curl is available on most development machines
         println "\n[2/4] Waiting for Ollama to be ready..."
         def ollamaReady = false
         def maxAttempts = 60
