@@ -47,22 +47,3 @@ jobs:
 
       - name: Install frontend dependencies
         run: cd chatbot && npm ci
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Gradle projects
-        run: ./gradlew build -x test
-
-      - name: Create .env file
-        run: cp .env.example .env
-
-      - name: Start infrastructure services
-        run: ./gradlew developmentUp
-        timeout-minutes: 10
-
-      - name: Verify services are running
-        run: |
-          docker compose ps
-          curl -f http://localhost:11434/api/tags || echo "Ollama not ready"
-          curl -f http://localhost:4000/health || echo "LiteLLM not ready (auth required is ok)"
