@@ -10,7 +10,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && \
 
 # Copy the pre-built jar from the build directory
 # The JAR is built by Gradle on the host before Docker build
-COPY build/libs/*.jar app.jar
+# Using two-step approach: copy with wildcard, then rename
+COPY build/libs/*.jar ./
+RUN mv *.jar app.jar
 
 # Change ownership to spring user
 RUN chown spring:spring app.jar
