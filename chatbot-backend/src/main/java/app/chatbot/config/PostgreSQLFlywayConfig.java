@@ -49,8 +49,8 @@ public class PostgreSQLFlywayConfig {
     @ConditionalOnProperty(name = "app.flyway.strategy", havingValue = "skip")
     public FlywayMigrationStrategy skipFlywayStrategy() {
         return flyway -> {
-            // Keine Migration - für manuelle DB-Setup oder wenn Flyway Probleme verursacht
-            log.info("Flyway Migration übersprungen - Manuelle DB-Verwaltung aktiv");
+            // No migration - for manual DB setup or when Flyway causes issues
+            log.info("Flyway Migration skipped - Manual DB management active");
         };
     }
 }
