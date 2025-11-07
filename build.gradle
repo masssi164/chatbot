@@ -25,6 +25,33 @@ dockerCompose {
     projectName = 'chatbot'
 }
 
+// Ensure .env file exists before running docker-compose
+task ensureEnvFile {
+    group = 'docker'
+    description = 'Creates .env file from .env.example if it does not exist'
+    
+    doFirst {
+        def envFile = file('.env')
+        def envExampleFile = file('.env.example')
+        
+        if (!envFile.exists()) {
+            if (envExampleFile.exists()) {
+                println "Creating .env file from .env.example..."
+                envExampleFile.withInputStream { input ->
+                    envFile.withOutputStream { output ->
+                        output << input
+                    }
+                }
+                println "✓ .env file created successfully"
+            } else {
+                throw new GradleException("ERROR: .env.example file not found. Cannot create .env file.")
+            }
+        } else {
+            println "✓ .env file already exists"
+        }
+    }
+}
+
 // Build all Docker images before starting services
 task buildAllImages {
     group = 'docker'
@@ -34,13 +61,16 @@ task buildAllImages {
     dependsOn ':chatbot:buildDockerImage'
 }
 
-// Configure Docker Compose to build images before starting
-composeUp.dependsOn buildAllImages
+// Configure Docker Compose to ensure .env and build images before starting
+composeUp.dependsOn ensureEnvFile, buildAllImages
+composeBuild.dependsOn ensureEnvFile
 
 // Development mode - starts infrastructure in Docker, apps locally
 task developmentUp {
     group = 'application'
     description = 'Starts infrastructure (ollama, litellm, n8n, postgres-n8n) in Docker for local development'
+    
+    dependsOn ensureEnvFile
     
     doLast {
         println "=== Starting Development Environment ==="
@@ -137,6 +167,8 @@ task developmentUp {
 task externalServicesUp {
     group = 'application'
     description = 'Starts only external services (postgres-*, n8n, ollama, litellm) - for local JVM development'
+    
+    dependsOn ensureEnvFile
     
     doLast {
         project.exec {
