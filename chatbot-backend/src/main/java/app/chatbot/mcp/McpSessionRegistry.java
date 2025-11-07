@@ -1,5 +1,7 @@
 package app.chatbot.mcp;
 
+import static app.chatbot.mcp.config.McpSessionConstants.*;
+
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Duration;
@@ -47,8 +49,6 @@ import reactor.core.publisher.Mono;
 @Component
 @Slf4j
 public class McpSessionRegistry implements ApplicationListener<ContextClosedEvent> {
-
-    private static final Duration IDLE_TIMEOUT = Duration.ofMinutes(30);
     
     private final ConcurrentHashMap<String, SessionHolder> sessions = new ConcurrentHashMap<>();
     private final McpServerRepository serverRepository;
@@ -104,7 +104,7 @@ public class McpSessionRegistry implements ApplicationListener<ContextClosedEven
             if (currentState == SessionState.INITIALIZING) {
                 // Another thread is initializing, wait briefly and retry
                 log.debug("Session {} is being initialized by another thread, waiting...", serverId);
-                return Mono.delay(Duration.ofMillis(50))
+                return Mono.delay(RETRY_DELAY)
                     .then(Mono.defer(() -> getOrCreateSession(serverId)));
             }
 
@@ -215,7 +215,7 @@ public class McpSessionRegistry implements ApplicationListener<ContextClosedEven
             log.info("Closing MCP session for server: {}", serverId);
 
             return holder.client.closeGracefully()
-                .timeout(Duration.ofSeconds(5))
+                .timeout(SESSION_CLOSE_TIMEOUT)
                 .doOnSuccess(v -> log.info("MCP session closed for server: {}", serverId))
                 .doOnError(error -> log.warn("Error closing MCP session for server {}: {}", 
                     serverId, error.getMessage()))
@@ -353,7 +353,7 @@ public class McpSessionRegistry implements ApplicationListener<ContextClosedEven
      */
     @Scheduled(fixedDelay = 600000) // 10 Minuten
     public void cleanupIdleSessions() {
-        Instant cutoff = Instant.now().minus(IDLE_TIMEOUT);
+        Instant cutoff = Instant.now().minus(SESSION_IDLE_TIMEOUT);
         
         sessions.entrySet().stream()
             .filter(entry -> {

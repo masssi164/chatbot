@@ -1,5 +1,7 @@
 package app.chatbot.mcp;
 
+import static app.chatbot.mcp.config.McpSessionConstants.*;
+
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -46,7 +48,7 @@ public class McpClientService {
                             })
                             .onErrorResume(IllegalStateException.class, translateMissingCapability("tools", serverId));
                 })
-                .timeout(Duration.ofSeconds(15))
+                .timeout(OPERATION_TIMEOUT)
                 .doOnError(ex -> log.error("Failed to list tools for server {}", serverId, ex));
     }
 
@@ -74,7 +76,7 @@ public class McpClientService {
                             })
                             .onErrorResume(IllegalStateException.class, translateMissingCapability("resources", serverId));
                 })
-                .timeout(Duration.ofSeconds(15))
+                .timeout(OPERATION_TIMEOUT)
                 .doOnError(ex -> log.error("Failed to list resources for server {}", serverId, ex));
     }
 
@@ -102,7 +104,7 @@ public class McpClientService {
                             })
                             .onErrorResume(IllegalStateException.class, translateMissingCapability("prompts", serverId));
                 })
-                .timeout(Duration.ofSeconds(15))
+                .timeout(OPERATION_TIMEOUT)
                 .doOnError(ex -> log.error("Failed to list prompts for server {}", serverId, ex));
     }
 
