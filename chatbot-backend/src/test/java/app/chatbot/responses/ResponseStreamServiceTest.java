@@ -12,6 +12,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import org.mockito.Mockito;
 import static org.mockito.Mockito.times;
@@ -444,5 +445,487 @@ class ResponseStreamServiceTest {
         StepVerifier.create(service.streamResponses(request, null))
                 .expectError(IllegalArgumentException.class)
                 .verify();
+    }
+
+    @Test
+    void shouldHandleEmptySSEPayload() throws Exception {
+        this.ssePayload = encodeEvent("response.completed", objectMapper.createObjectNode());
+        Mockito.when(toolDefinitionProvider.listTools()).thenReturn(Flux.empty());
+
+        Conversation conversation = Conversation.builder().id(6L).build();
+        given(conversationService.ensureConversation(null, null)).willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+
+        StepVerifier.create(service.streamResponses(new ResponseStreamRequest(null, null,
+                        objectMapper.createObjectNode().put("model", "test")), null))
+                .expectNextMatches(event -> "conversation.ready".equals(event.event()))
+                .thenConsumeWhile(event -> true)
+                .verifyComplete();
+    }
+
+    @Test
+    void shouldHandleNullPayload() {
+        ResponseStreamRequest request = new ResponseStreamRequest(null, null, null);
+
+        StepVerifier.create(service.streamResponses(request, null))
+                .expectError(IllegalArgumentException.class)
+                .verify();
+    }
+
+    @Test
+    void shouldUseProvidedAuthHeader() throws Exception {
+        this.ssePayload = encodeEvent("response.completed", objectMapper.createObjectNode());
+        Mockito.when(toolDefinitionProvider.listTools()).thenReturn(Flux.empty());
+
+        Conversation conversation = Conversation.builder().id(9L).build();
+        given(conversationService.ensureConversation(null, null)).willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+
+        StepVerifier.create(service.streamResponses(new ResponseStreamRequest(null, null,
+                        objectMapper.createObjectNode().put("model", "test")), "Bearer custom-token"))
+                .expectNextMatches(event -> "conversation.ready".equals(event.event()))
+                .thenConsumeWhile(event -> true)
+                .verifyComplete();
+
+        assertThat(recordedRequest.get().headers().get(org.springframework.http.HttpHeaders.AUTHORIZATION))
+                .containsExactly("Bearer custom-token");
+    }
+
+    @Test
+    void shouldHandleResponseCreatedEvent() throws Exception {
+        ObjectNode responseCreated = objectMapper.createObjectNode();
+        responseCreated.put("id", "resp-123");
+
+        this.ssePayload = new StringBuilder()
+                .append(encodeEvent("response.created", responseCreated))
+                .append(encodeEvent("response.completed", objectMapper.createObjectNode()))
+                .toString();
+        Mockito.when(toolDefinitionProvider.listTools()).thenReturn(Flux.empty());
+
+        Conversation conversation = Conversation.builder().id(10L).build();
+        given(conversationService.ensureConversation(null, null)).willReturn(Mono.just(conversation));
+        given(conversationService.updateConversationResponseId(any(), any())).willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+
+        StepVerifier.create(service.streamResponses(new ResponseStreamRequest(null, null,
+                        objectMapper.createObjectNode()), null))
+                .expectNextMatches(event -> "conversation.ready".equals(event.event()))
+                .thenConsumeWhile(event -> true)
+                .verifyComplete();
+
+        // Verify that updateConversationResponseId was called
+        verify(conversationService, times(1)).updateConversationResponseId(any(), any());
+    }
+
+    @Test
+    void shouldHandleResponseIncompleteEvent() throws Exception {
+        ObjectNode incomplete = objectMapper.createObjectNode();
+        incomplete.put("reason", "timeout");
+
+        this.ssePayload = new StringBuilder()
+                .append(encodeEvent("response.incomplete", incomplete))
+                .toString();
+        Mockito.when(toolDefinitionProvider.listTools()).thenReturn(Flux.empty());
+
+        Conversation conversation = Conversation.builder().id(11L).build();
+        given(conversationService.ensureConversation(null, null)).willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+
+        StepVerifier.create(service.streamResponses(new ResponseStreamRequest(null, null,
+                        objectMapper.createObjectNode()), null))
+                .expectNextMatches(event -> "conversation.ready".equals(event.event()))
+                .thenConsumeWhile(event -> true)
+                .verifyComplete();
+
+        verify(conversationService).finalizeConversation(any(), any(), any(), any());
+    }
+
+    @Test
+    void shouldHandleResponseFailedEvent() throws Exception {
+        ObjectNode failed = objectMapper.createObjectNode();
+        failed.put("error", "rate_limit");
+
+        this.ssePayload = new StringBuilder()
+                .append(encodeEvent("response.failed", failed))
+                .toString();
+        Mockito.when(toolDefinitionProvider.listTools()).thenReturn(Flux.empty());
+
+        Conversation conversation = Conversation.builder().id(12L).build();
+        given(conversationService.ensureConversation(null, null)).willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+
+        StepVerifier.create(service.streamResponses(new ResponseStreamRequest(null, null,
+                        objectMapper.createObjectNode()), null))
+                .expectNextMatches(event -> "conversation.ready".equals(event.event()))
+                .thenConsumeWhile(event -> true)
+                .verifyComplete();
+
+        verify(conversationService).finalizeConversation(any(), any(), any(), any());
+    }
+
+    @Test
+    void shouldHandleErrorEvent() throws Exception {
+        ObjectNode error = objectMapper.createObjectNode();
+        error.put("message", "Something went wrong");
+
+        this.ssePayload = new StringBuilder()
+                .append(encodeEvent("error", error))
+                .append(encodeEvent("response.completed", objectMapper.createObjectNode()))
+                .toString();
+        Mockito.when(toolDefinitionProvider.listTools()).thenReturn(Flux.empty());
+
+        Conversation conversation = Conversation.builder().id(13L).build();
+        given(conversationService.ensureConversation(null, null)).willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+
+        StepVerifier.create(service.streamResponses(new ResponseStreamRequest(null, null,
+                        objectMapper.createObjectNode()), null))
+                .expectNextMatches(event -> "conversation.ready".equals(event.event()))
+                .thenConsumeWhile(event -> true)
+                .verifyComplete();
+    }
+
+    @Test
+    void shouldHandleTextDeltaWithEmptyText() throws Exception {
+        ObjectNode textDelta = objectMapper.createObjectNode();
+        textDelta.put("output_index", 0);
+        textDelta.put("item_id", "msg-empty");
+        textDelta.put("delta", "");
+
+        this.ssePayload = new StringBuilder()
+                .append(encodeEvent("response.output_text.delta", textDelta))
+                .append(encodeEvent("response.completed", objectMapper.createObjectNode()))
+                .toString();
+        Mockito.when(toolDefinitionProvider.listTools()).thenReturn(Flux.empty());
+
+        Conversation conversation = Conversation.builder().id(14L).build();
+        given(conversationService.ensureConversation(null, null)).willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+
+        StepVerifier.create(service.streamResponses(new ResponseStreamRequest(null, null,
+                        objectMapper.createObjectNode()), null))
+                .expectNextMatches(event -> "conversation.ready".equals(event.event()))
+                .thenConsumeWhile(event -> true)
+                .verifyComplete();
+    }
+
+    @Test
+    void shouldHandleOutputItemWithUnknownType() throws Exception {
+        ObjectNode addedItem = objectMapper.createObjectNode();
+        ObjectNode item = addedItem.putObject("item");
+        item.put("type", "unknown_type");
+        item.put("id", "item-unknown");
+        addedItem.put("output_index", 0);
+
+        this.ssePayload = new StringBuilder()
+                .append(encodeEvent("response.output_item.added", addedItem))
+                .append(encodeEvent("response.completed", objectMapper.createObjectNode()))
+                .toString();
+        Mockito.when(toolDefinitionProvider.listTools()).thenReturn(Flux.empty());
+
+        Conversation conversation = Conversation.builder().id(15L).build();
+        given(conversationService.ensureConversation(null, null)).willReturn(Mono.just(conversation));
+        given(conversationService.appendMessage(any(), any(), any(), any(), any(), any()))
+                .willReturn(Mono.just(Message.builder().build()));
+        given(conversationService.finalizeConversation(any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+
+        StepVerifier.create(service.streamResponses(new ResponseStreamRequest(null, null,
+                        objectMapper.createObjectNode()), null))
+                .expectNextMatches(event -> "conversation.ready".equals(event.event()))
+                .thenConsumeWhile(event -> true)
+                .verifyComplete();
+    }
+
+    @Test
+    void shouldHandleOutputItemWithOutputTextType() throws Exception {
+        ObjectNode addedItem = objectMapper.createObjectNode();
+        ObjectNode item = addedItem.putObject("item");
+        item.put("type", "output_text");
+        item.put("id", "item-text");
+        addedItem.put("output_index", 0);
+
+        this.ssePayload = new StringBuilder()
+                .append(encodeEvent("response.output_item.added", addedItem))
+                .append(encodeEvent("response.completed", objectMapper.createObjectNode()))
+                .toString();
+        Mockito.when(toolDefinitionProvider.listTools()).thenReturn(Flux.empty());
+
+        Conversation conversation = Conversation.builder().id(16L).build();
+        given(conversationService.ensureConversation(null, null)).willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+
+        StepVerifier.create(service.streamResponses(new ResponseStreamRequest(null, null,
+                        objectMapper.createObjectNode()), null))
+                .expectNextMatches(event -> "conversation.ready".equals(event.event()))
+                .thenConsumeWhile(event -> true)
+                .verifyComplete();
+    }
+
+    @Test
+    void shouldHandleSendApprovalResponse() {
+        Conversation conversation = Conversation.builder()
+                .id(17L)
+                .responseId("resp-approval-test")
+                .build();
+
+        given(conversationService.ensureConversation(17L, null))
+                .willReturn(Mono.just(conversation));
+        given(conversationService.updateConversationResponseId(any(), any()))
+                .willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+
+        ObjectNode responseCreated = objectMapper.createObjectNode();
+        responseCreated.put("id", "resp-new");
+
+        String approvalPayload = new StringBuilder()
+                .append(encodeEvent("response.created", responseCreated))
+                .append(encodeEvent("response.completed", objectMapper.createObjectNode()))
+                .toString();
+
+        // Update the exchange function to return approval response
+        AtomicReference<ClientRequest> approvalRequest = new AtomicReference<>();
+        WebClient approvalClient = WebClient.builder()
+                .exchangeFunction(request -> {
+                    approvalRequest.set(request);
+                    DataBuffer buffer = new DefaultDataBufferFactory().wrap(approvalPayload.getBytes(StandardCharsets.UTF_8));
+                    ClientResponse response = ClientResponse.create(HttpStatus.OK)
+                            .header(HttpHeaders.CONTENT_TYPE, MediaType.TEXT_EVENT_STREAM_VALUE)
+                            .body(Flux.just(buffer))
+                            .build();
+                    return Mono.just(response);
+                })
+                .build();
+
+        OpenAiProperties properties = new OpenAiProperties();
+        properties.setBaseUrl("http://localhost:1234/v1");
+
+        ResponseStreamService approvalService = new ResponseStreamService(
+                approvalClient, properties, conversationService, toolDefinitionProvider, objectMapper);
+
+        StepVerifier.create(approvalService.sendApprovalResponse(17L, "apreq-123", true, "User approved"))
+                .expectNextMatches(event -> "response.created".equals(event.event()))
+                .thenConsumeWhile(event -> true)
+                .verifyComplete();
+
+        verify(conversationService).ensureConversation(17L, null);
+    }
+
+    @Test
+    void shouldHandleSendApprovalResponseWithoutResponseId() {
+        Conversation conversation = Conversation.builder()
+                .id(18L)
+                .responseId(null)
+                .build();
+
+        given(conversationService.ensureConversation(18L, null))
+                .willReturn(Mono.just(conversation));
+
+        StepVerifier.create(service.sendApprovalResponse(18L, "apreq-456", false, null))
+                .expectError(IllegalStateException.class)
+                .verify();
+    }
+
+    @Test
+    void shouldHandleSendApprovalResponseWithEmptyResponseId() {
+        Conversation conversation = Conversation.builder()
+                .id(19L)
+                .responseId("")
+                .build();
+
+        given(conversationService.ensureConversation(19L, null))
+                .willReturn(Mono.just(conversation));
+
+        StepVerifier.create(service.sendApprovalResponse(19L, "apreq-789", true, "Reason"))
+                .expectError(IllegalStateException.class)
+                .verify();
+    }
+
+    @Test
+    void shouldHandleTextDoneWithEmptyAccumulatedText() throws Exception {
+        ObjectNode textDone = objectMapper.createObjectNode();
+        textDone.put("output_index", 0);
+        textDone.put("item_id", "msg-no-text");
+        textDone.put("text", "");
+
+        this.ssePayload = new StringBuilder()
+                .append(encodeEvent("response.output_text.done", textDone))
+                .append(encodeEvent("response.completed", objectMapper.createObjectNode()))
+                .toString();
+        Mockito.when(toolDefinitionProvider.listTools()).thenReturn(Flux.empty());
+
+        Conversation conversation = Conversation.builder().id(21L).build();
+        given(conversationService.ensureConversation(null, null)).willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+
+        StepVerifier.create(service.streamResponses(new ResponseStreamRequest(null, null,
+                        objectMapper.createObjectNode()), null))
+                .expectNextMatches(event -> "conversation.ready".equals(event.event()))
+                .thenConsumeWhile(event -> true)
+                .verifyComplete();
+
+        // updateMessageContent should NOT be called for empty text
+        verify(conversationService, times(0)).updateMessageContent(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void shouldHandleOutputItemWithMissingType() throws Exception {
+        ObjectNode addedItem = objectMapper.createObjectNode();
+        addedItem.putObject("item"); // No type field
+        addedItem.put("output_index", 0);
+
+        this.ssePayload = new StringBuilder()
+                .append(encodeEvent("response.output_item.added", addedItem))
+                .append(encodeEvent("response.completed", objectMapper.createObjectNode()))
+                .toString();
+        Mockito.when(toolDefinitionProvider.listTools()).thenReturn(Flux.empty());
+
+        Conversation conversation = Conversation.builder().id(22L).build();
+        given(conversationService.ensureConversation(null, null)).willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+
+        StepVerifier.create(service.streamResponses(new ResponseStreamRequest(null, null,
+                        objectMapper.createObjectNode()), null))
+                .expectNextMatches(event -> "conversation.ready".equals(event.event()))
+                .thenConsumeWhile(event -> true)
+                .verifyComplete();
+    }
+
+    @Test
+    void shouldHandleOutputItemWithNullOutputIndex() throws Exception {
+        ObjectNode addedItem = objectMapper.createObjectNode();
+        ObjectNode item = addedItem.putObject("item");
+        item.put("type", "function_call");
+        item.put("id", "fn-null-idx");
+        item.put("name", "test_func");
+        // No output_index field
+
+        this.ssePayload = new StringBuilder()
+                .append(encodeEvent("response.output_item.added", addedItem))
+                .append(encodeEvent("response.completed", objectMapper.createObjectNode()))
+                .toString();
+        Mockito.when(toolDefinitionProvider.listTools()).thenReturn(Flux.empty());
+
+        Conversation conversation = Conversation.builder().id(23L).build();
+        given(conversationService.ensureConversation(null, null)).willReturn(Mono.just(conversation));
+        given(conversationService.upsertToolCall(any(), any(), any(), any(), any()))
+                .willReturn(Mono.just(ToolCall.builder().build()));
+        given(conversationService.finalizeConversation(any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+
+        StepVerifier.create(service.streamResponses(new ResponseStreamRequest(null, null,
+                        objectMapper.createObjectNode()), null))
+                .expectNextMatches(event -> "conversation.ready".equals(event.event()))
+                .thenConsumeWhile(event -> true)
+                .verifyComplete();
+    }
+
+    @Test
+    void shouldHandleFunctionCallWithoutCallId() throws Exception {
+        ObjectNode addedItem = objectMapper.createObjectNode();
+        ObjectNode item = addedItem.putObject("item");
+        item.put("type", "function_call");
+        item.put("id", "fn-no-callid");
+        item.put("name", "test_func");
+        // No call_id field - should fall back to item id
+        addedItem.put("output_index", 1);
+
+        this.ssePayload = new StringBuilder()
+                .append(encodeEvent("response.output_item.added", addedItem))
+                .append(encodeEvent("response.completed", objectMapper.createObjectNode()))
+                .toString();
+        Mockito.when(toolDefinitionProvider.listTools()).thenReturn(Flux.empty());
+
+        Conversation conversation = Conversation.builder().id(24L).build();
+        given(conversationService.ensureConversation(null, null)).willReturn(Mono.just(conversation));
+        given(conversationService.upsertToolCall(any(), any(), any(), any(), any()))
+                .willAnswer(invocation -> {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> attrs = invocation.getArgument(4, Map.class);
+                    // Verify call_id falls back to item_id
+                    assertThat(attrs.get("callId")).isEqualTo("fn-no-callid");
+                    return Mono.just(ToolCall.builder().build());
+                });
+        given(conversationService.finalizeConversation(any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+
+        StepVerifier.create(service.streamResponses(new ResponseStreamRequest(null, null,
+                        objectMapper.createObjectNode()), null))
+                .expectNextMatches(event -> "conversation.ready".equals(event.event()))
+                .thenConsumeWhile(event -> true)
+                .verifyComplete();
+    }
+
+    @Test
+    void shouldHandleMcpCallWithEmptyCallId() throws Exception {
+        ObjectNode addedItem = objectMapper.createObjectNode();
+        ObjectNode item = addedItem.putObject("item");
+        item.put("type", "mcp_call");
+        item.put("id", "mcp-empty-callid");
+        item.put("name", "test_mcp");
+        item.put("call_id", ""); // Empty call_id should fall back to item id
+        addedItem.put("output_index", 2);
+
+        this.ssePayload = new StringBuilder()
+                .append(encodeEvent("response.output_item.added", addedItem))
+                .append(encodeEvent("response.completed", objectMapper.createObjectNode()))
+                .toString();
+        Mockito.when(toolDefinitionProvider.listTools()).thenReturn(Flux.empty());
+
+        Conversation conversation = Conversation.builder().id(25L).build();
+        given(conversationService.ensureConversation(null, null)).willReturn(Mono.just(conversation));
+        given(conversationService.upsertToolCall(any(), any(), any(), any(), any()))
+                .willAnswer(invocation -> {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> attrs = invocation.getArgument(4, Map.class);
+                    // Verify call_id falls back to item_id when empty
+                    assertThat(attrs.get("callId")).isEqualTo("mcp-empty-callid");
+                    return Mono.just(ToolCall.builder().build());
+                });
+        given(conversationService.finalizeConversation(any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+
+        StepVerifier.create(service.streamResponses(new ResponseStreamRequest(null, null,
+                        objectMapper.createObjectNode()), null))
+                .expectNextMatches(event -> "conversation.ready".equals(event.event()))
+                .thenConsumeWhile(event -> true)
+                .verifyComplete();
     }
 }
