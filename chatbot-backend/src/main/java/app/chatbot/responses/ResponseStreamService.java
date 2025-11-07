@@ -278,7 +278,7 @@ public class ResponseStreamService {
 
         // Log all MCP-related events for debugging
         if (eventName.startsWith("response.mcp_call")) {
-            log.debug("🔍 MCP Event: {} - payload: {}", eventName, payload.toPrettyString());
+            log.trace("MCP Event: {} for conversation: {}", eventName, state.conversationId);
         }
 
         return switch (eventName) {
@@ -310,7 +310,7 @@ public class ResponseStreamService {
             
             // MCP approval events
             case EVENT_MCP_APPROVAL_REQUEST -> {
-                log.info("MCP APPROVAL REQUEST EVENT RECEIVED! Payload: {}", payload.toPrettyString());
+                log.debug("MCP APPROVAL REQUEST EVENT RECEIVED for conversation: {}", state.conversationId);
                 yield handleMcpApprovalRequest(payload, state);
             }
             
