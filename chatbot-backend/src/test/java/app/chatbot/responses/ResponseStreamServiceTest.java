@@ -274,6 +274,11 @@ class ResponseStreamServiceTest {
                         .content("Hello")
                         .build()));
 
+        given(conversationService.finalizeConversation(any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+
         ResponseStreamRequest request = new ResponseStreamRequest(null, null,
                 objectMapper.createObjectNode().put("model", "gpt-test"));
 
@@ -330,6 +335,11 @@ class ResponseStreamServiceTest {
                         .content("Answer")
                         .build()));
 
+        given(conversationService.finalizeConversation(any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+
         StepVerifier.create(service.streamResponses(new ResponseStreamRequest(null, null,
                         objectMapper.createObjectNode().put("model", "gpt-test")), null))
                 .expectNextMatches(event -> "conversation.ready".equals(event.event()))
@@ -356,6 +366,10 @@ class ResponseStreamServiceTest {
 
         Conversation conversation = Conversation.builder().id(7L).build();
         given(conversationService.ensureConversation(null, null)).willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any(), any()))
+                .willReturn(Mono.just(conversation));
         List<Map<String, Object>> capturedAttributes = new java.util.ArrayList<>();
         given(conversationService.upsertToolCall(any(), any(), any(), any(), any()))
                 .willAnswer(invocation -> {
@@ -408,6 +422,10 @@ class ResponseStreamServiceTest {
                 .willReturn(Mono.empty());
         given(conversationService.updateMessageContent(any(), any(), any(), any(), any()))
                 .willReturn(Mono.empty());
+        given(conversationService.finalizeConversation(any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any(), any()))
+                .willReturn(Mono.just(conversation));
 
         StepVerifier.create(service.streamResponses(new ResponseStreamRequest(null, null,
                         objectMapper.createObjectNode()), null))
