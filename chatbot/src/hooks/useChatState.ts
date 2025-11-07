@@ -1,65 +1,80 @@
-import { useChatStore } from "../store/chatStore";
+import { useConversationStore } from "../store/conversationStore";
+import { useMessageStore } from "../store/messageStore";
+import { useStreamingStore } from "../store/streamingStore";
+import { useToolCallStore } from "../store/toolCallStore";
+import { useConfigStore } from "../store/configStore";
 
 /**
- * Custom hook to group chat state selectors and reduce boilerplate
+ * Custom hook to group chat state selectors from modular stores
+ * Refactored to use focused stores instead of monolithic chatStore
  */
 export function useChatState() {
   return {
-    // Conversation state
-    conversationId: useChatStore((state) => state.conversationId),
-    conversationTitle: useChatStore((state) => state.conversationTitle),
-    conversationSummaries: useChatStore((state) => state.conversationSummaries),
+    // Conversation state (from conversationStore)
+    conversationId: useConversationStore((state) => state.conversationId),
+    conversationTitle: useConversationStore((state) => state.conversationTitle),
+    conversationSummaries: useConversationStore((state) => state.conversationSummaries),
     
-    // Message state
-    messages: useChatStore((state) => state.messages),
-    toolCalls: useChatStore((state) => state.toolCalls),
-    pendingApprovalRequest: useChatStore((state) => state.pendingApprovalRequest),
+    // Message state (from messageStore)
+    messages: useMessageStore((state) => state.messages),
     
-    // Stream state
-    isStreaming: useChatStore((state) => state.isStreaming),
-    streamError: useChatStore((state) => state.streamError),
+    // Tool call state (from toolCallStore)
+    toolCalls: useToolCallStore((state) => state.toolCalls),
+    pendingApprovalRequest: useToolCallStore((state) => state.pendingApprovalRequest),
     
-    // Response lifecycle tracking (matches backend Conversation entity)
-    responseId: useChatStore((state) => state.responseId),
-    conversationStatus: useChatStore((state) => state.conversationStatus),
-    completionReason: useChatStore((state) => state.completionReason),
+    // Stream state (from streamingStore)
+    isStreaming: useStreamingStore((state) => state.isStreaming),
+    streamError: useStreamingStore((state) => state.streamError),
     
-    // Model configuration
-    model: useChatStore((state) => state.model),
-    availableModels: useChatStore((state) => state.availableModels),
-    temperature: useChatStore((state) => state.temperature),
-    maxTokens: useChatStore((state) => state.maxTokens),
-    topP: useChatStore((state) => state.topP),
-    presencePenalty: useChatStore((state) => state.presencePenalty),
-    frequencyPenalty: useChatStore((state) => state.frequencyPenalty),
-    systemPrompt: useChatStore((state) => state.systemPrompt),
+    // Response lifecycle tracking (from streamingStore)
+    responseId: useStreamingStore((state) => state.responseId),
+    conversationStatus: useStreamingStore((state) => state.conversationStatus),
+    completionReason: useStreamingStore((state) => state.completionReason),
+    
+    // Model configuration (from configStore)
+    model: useConfigStore((state) => state.model),
+    availableModels: useConfigStore((state) => state.availableModels),
+    temperature: useConfigStore((state) => state.temperature),
+    maxTokens: useConfigStore((state) => state.maxTokens),
+    topP: useConfigStore((state) => state.topP),
+    presencePenalty: useConfigStore((state) => state.presencePenalty),
+    frequencyPenalty: useConfigStore((state) => state.frequencyPenalty),
+    systemPrompt: useConfigStore((state) => state.systemPrompt),
   };
 }
 
 /**
- * Custom hook to group chat actions and reduce boilerplate
+ * Custom hook to group chat actions from modular stores
+ * Refactored to use focused stores instead of monolithic chatStore
  */
 export function useChatActions() {
   return {
-    // Conversation actions
-    ensureConversation: useChatStore((state) => state.ensureConversation),
-    loadConversations: useChatStore((state) => state.loadConversations),
-    loadConversation: useChatStore((state) => state.loadConversation),
-    reset: useChatStore((state) => state.reset),
+    // Conversation actions (from conversationStore)
+    ensureConversation: useConversationStore((state) => state.ensureConversation),
+    loadConversations: useConversationStore((state) => state.loadConversations),
+    loadConversation: useConversationStore((state) => state.loadConversation),
     
-    // Message actions
-    sendMessage: useChatStore((state) => state.sendMessage),
-    abortStreaming: useChatStore((state) => state.abortStreaming),
-    sendApprovalResponse: useChatStore((state) => state.sendApprovalResponse),
+    // Reset actions (from multiple stores)
+    reset: () => {
+      useConversationStore.getState().reset();
+      useMessageStore.getState().clearMessages();
+      useStreamingStore.getState().reset();
+      useToolCallStore.getState().clearToolCalls();
+    },
     
-    // Model configuration actions
-    fetchModels: useChatStore((state) => state.fetchModels),
-    setModel: useChatStore((state) => state.setModel),
-    setTemperature: useChatStore((state) => state.setTemperature),
-    setMaxTokens: useChatStore((state) => state.setMaxTokens),
-    setTopP: useChatStore((state) => state.setTopP),
-    setPresencePenalty: useChatStore((state) => state.setPresencePenalty),
-    setFrequencyPenalty: useChatStore((state) => state.setFrequencyPenalty),
-    setSystemPrompt: useChatStore((state) => state.setSystemPrompt),
+    // Message actions (from streamingStore)
+    sendMessage: useStreamingStore((state) => state.sendMessage),
+    abortStreaming: useStreamingStore((state) => state.abortStreaming),
+    sendApprovalResponse: useStreamingStore((state) => state.sendApprovalResponse),
+    
+    // Model configuration actions (from configStore)
+    fetchModels: useConfigStore((state) => state.fetchModels),
+    setModel: useConfigStore((state) => state.setModel),
+    setTemperature: useConfigStore((state) => state.setTemperature),
+    setMaxTokens: useConfigStore((state) => state.setMaxTokens),
+    setTopP: useConfigStore((state) => state.setTopP),
+    setPresencePenalty: useConfigStore((state) => state.setPresencePenalty),
+    setFrequencyPenalty: useConfigStore((state) => state.setFrequencyPenalty),
+    setSystemPrompt: useConfigStore((state) => state.setSystemPrompt),
   };
 }

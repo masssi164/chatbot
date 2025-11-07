@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ToolCallDto } from "../services/apiClient";
-import type { ToolCallState } from "../store/chatStore";
+import type { ToolCallState } from "../store/toolCallStore";
 import "./ToolCallDetails.css";
 
 interface ToolCallDetailsProps {

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { McpTransportType } from "../services/apiClient";
-import type { ChatConfig } from "../store/chatStore";
+import type { ChatConfig } from "../store/configStore";
 import type { McpServer, McpServerStatus } from "../store/mcpServerStore";
 import { McpCapabilitiesPanel } from "./McpCapabilitiesPanel";
 

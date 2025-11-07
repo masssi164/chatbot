@@ -1,6 +1,21 @@
 import { create } from "zustand";
 
 /**
+ * Configuration type for LLM model settings (data only, no actions)
+ * Used for passing config to components
+ */
+export interface ChatConfig {
+  model: string;
+  titleModel?: string;
+  temperature?: number;
+  maxTokens?: number;
+  topP?: number;
+  presencePenalty?: number;
+  frequencyPenalty?: number;
+  systemPrompt?: string;
+}
+
+/**
  * Configuration store for LLM model settings
  * Extracted from chatStore for better maintainability
  */

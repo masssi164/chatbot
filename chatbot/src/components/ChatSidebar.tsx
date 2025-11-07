@@ -1,6 +1,9 @@
 import { Link, useLocation } from "react-router-dom";
-import type { ChatSummary } from "../store/chatStore";
+import type { ConversationSummary } from "../services/apiClient";
 import { formatTimestamp } from "../utils/format";
+
+// Type alias for compatibility
+type ChatSummary = ConversationSummary;
 
 interface ChatSidebarProps {
   chats: ChatSummary[];

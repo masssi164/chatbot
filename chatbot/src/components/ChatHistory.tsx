@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
-import type { ChatMessage, ToolCallState } from '../store/chatStore'
+import type { ChatMessage } from '../store/messageStore'
+import type { ToolCallState } from '../store/toolCallStore'
 import { formatTimestamp } from '../utils/format'
 
 interface ChatHistoryProps {
