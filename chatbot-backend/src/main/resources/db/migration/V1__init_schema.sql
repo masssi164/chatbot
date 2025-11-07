@@ -2,7 +2,7 @@
 
 -- Conversations table
 CREATE TABLE conversations (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     title VARCHAR(255),
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL
@@ -10,11 +10,11 @@ CREATE TABLE conversations (
 
 -- Messages table
 CREATE TABLE messages (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     conversation_id BIGINT NOT NULL,
     role VARCHAR(50) NOT NULL,
-    content CLOB,
-    raw_json CLOB,
+    content TEXT,
+    raw_json TEXT,
     output_index INT,
     item_id VARCHAR(255),
     created_at TIMESTAMP NOT NULL,
@@ -23,13 +23,13 @@ CREATE TABLE messages (
 
 -- Tool calls table
 CREATE TABLE tool_calls (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     conversation_id BIGINT NOT NULL,
     type VARCHAR(50) NOT NULL,
     name VARCHAR(255) NOT NULL,
     call_id VARCHAR(255) NOT NULL,
-    arguments_json CLOB,
-    result_json CLOB,
+    arguments_json TEXT,
+    result_json TEXT,
     status VARCHAR(50) NOT NULL,
     output_index INT,
     item_id VARCHAR(255),
@@ -39,7 +39,7 @@ CREATE TABLE tool_calls (
 
 -- MCP servers table
 CREATE TABLE mcp_servers (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     server_id VARCHAR(255) NOT NULL UNIQUE,
     name VARCHAR(255) NOT NULL,
     base_url VARCHAR(500) NOT NULL,
@@ -48,12 +48,12 @@ CREATE TABLE mcp_servers (
     transport VARCHAR(50),
     last_updated TIMESTAMP NOT NULL,
     version BIGINT DEFAULT 0,
-    tools_cache CLOB,
-    resources_cache CLOB,
-    prompts_cache CLOB,
+    tools_cache TEXT,
+    resources_cache TEXT,
+    prompts_cache TEXT,
     last_synced_at TIMESTAMP,
     sync_status VARCHAR(50),
-    client_metadata CLOB
+    client_metadata TEXT
 );
 
 -- Indexes for performance
