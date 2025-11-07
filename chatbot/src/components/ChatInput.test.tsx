@@ -94,7 +94,6 @@ describe("ChatInput", () => {
     
     render(<ChatInput {...defaultProps} prompt="Test message" onSend={onSend} />);
     
-    const form = screen.getByRole("textbox").closest("form")!;
     await user.click(screen.getByRole("button", { name: /Send/ }));
     
     expect(onSend).toHaveBeenCalledWith("Test message");
@@ -106,7 +105,6 @@ describe("ChatInput", () => {
     
     render(<ChatInput {...defaultProps} prompt="" onSend={onSend} />);
     
-    const form = screen.getByRole("textbox").closest("form")!;
     await user.click(screen.getByRole("button", { name: /Send/ }));
     
     expect(onSend).not.toHaveBeenCalled();
