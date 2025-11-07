@@ -27,3 +27,19 @@ afterEach(() => {
   OPEN: 1,
   CLOSED: 2,
 })) as any;
+
+// Mock navigator.clipboard
+Object.defineProperty(globalThis.navigator, 'clipboard', {
+  value: {
+    writeText: vi.fn().mockResolvedValue(undefined),
+  },
+  writable: true,
+  configurable: true,
+});
+
+// Mock HTMLElement.scrollIntoView
+HTMLElement.prototype.scrollIntoView = vi.fn();
+
+// Mock document.execCommand
+document.execCommand = vi.fn().mockReturnValue(true);
+
