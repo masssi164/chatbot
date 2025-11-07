@@ -42,10 +42,10 @@ ZSCALER_ROOT_CA_PATH=./certs/zscaler-root-ca.crt
 
 ## Verification
 
-After placing the certificate here, rebuild containers:
+After placing the certificate here, restart containers:
 ```bash
 docker compose down
-docker compose up -d --build
+docker compose up -d
 ```
 
 Check Ollama can now pull models:

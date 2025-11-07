@@ -35,12 +35,14 @@ services:
       if [ -f /tmp/zscaler-root-ca.crt ] && [ -s /tmp/zscaler-root-ca.crt ]; then
         cp /tmp/zscaler-root-ca.crt /usr/local/share/ca-certificates/zscaler-root-ca.crt &&
         update-ca-certificates &&
-        export NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/zscaler-root-ca.crt &&
         echo 'Zscaler CA certificate installed for n8n' ||
         echo 'Warning: Failed to install custom CA certificate for n8n, using defaults';
       else
         echo 'No custom CA certificate provided for n8n, using system defaults';
-      fi &&
+      fi;
+      if [ -f /usr/local/share/ca-certificates/zscaler-root-ca.crt ]; then
+        export NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/zscaler-root-ca.crt;
+      fi;
       exec n8n start
       "
     depends_on:
@@ -213,7 +215,6 @@ services:
       fi &&
       exec litellm --config /app/config.yaml --detailed_debug
       "
-    command: []
     depends_on:
       ollama:
         condition: service_healthy
