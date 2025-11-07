@@ -1,0 +1,68 @@
+name: CI - Push
+
+# Run on push to any branch
+on:
+  push:
+    branches:
+      - '**'
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: chatbot/package-lock.json
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Install frontend dependencies
+        run: cd chatbot && npm ci
+
+      - name: Build backend with tests
+        run: ./gradlew :chatbot-backend:clean :chatbot-backend:build --no-daemon
+        env:
+          SPRING_PROFILES_ACTIVE: test
+
+      - name: Check test coverage
+        run: ./gradlew :chatbot-backend:jacocoTestCoverageVerification --no-daemon
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            chatbot-backend/build/reports/tests/
+            chatbot-backend/build/reports/jacoco/
+
+      - name: Start development infrastructure
+        run: ./gradlew developmentUp
+        continue-on-error: true
+        timeout-minutes: 10
+
+      - name: Show infrastructure logs
+        if: failure()
+        run: docker compose logs --tail=100
