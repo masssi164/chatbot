@@ -25,6 +25,33 @@ dockerCompose {
     projectName = 'chatbot'
 }
 
+// Ensure .env file exists before running docker-compose
+task ensureEnvFile {
+    group = 'docker'
+    description = 'Creates .env file from .env.example if it does not exist'
+    
+    doFirst {
+        def envFile = file('.env')
+        def envExampleFile = file('.env.example')
+        
+        if (!envFile.exists()) {
+            if (envExampleFile.exists()) {
+                println "Creating .env file from .env.example..."
+                envExampleFile.withInputStream { input ->
+                    envFile.withOutputStream { output ->
+                        output << input
+                    }
+                }
+                println "✓ .env file created successfully"
+            } else {
+                throw new GradleException("ERROR: .env.example file not found. Cannot create .env file.")
+            }
+        } else {
+            println "✓ .env file already exists"
+        }
+    }
+}
+
 // Build all Docker images before starting services
 task buildAllImages {
     group = 'docker'
@@ -34,8 +61,8 @@ task buildAllImages {
     dependsOn ':chatbot:buildDockerImage'
 }
 
-// Configure Docker Compose to build images before starting
-composeUp.dependsOn buildAllImages
+// Configure Docker Compose to ensure .env and build images before starting
+composeUp.dependsOn ensureEnvFile, buildAllImages
 
 // Development mode - starts infrastructure in Docker, apps locally
 task developmentUp {
