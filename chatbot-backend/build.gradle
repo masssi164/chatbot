@@ -28,6 +28,7 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-webflux'
     implementation 'org.springframework.boot:spring-boot-starter-data-r2dbc'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'  // For health checks and monitoring
     implementation 'org.flywaydb:flyway-core:11.3.0'  // Latest stable version compatible with PostgreSQL 16 and Spring Boot 3.4
     implementation 'org.flywaydb:flyway-database-postgresql:11.3.0'  // PostgreSQL-specific support for Flyway 11.x
     // Database drivers - H2 for dev/test, PostgreSQL for production
