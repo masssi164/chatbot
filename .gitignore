@@ -143,3 +143,10 @@ vite.config.ts.timestamp-*
 build/
 !gradle-wrapper.jar
 *.gradle.kts~
+
+# SSL Certificates (user-specific, not committed)
+certs/*.crt
+certs/*.pem
+certs/*.key
+!certs/.gitkeep
+!certs/README.md
