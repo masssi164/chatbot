@@ -22,8 +22,29 @@ services:
       TZ: ${GENERIC_TIMEZONE}
       N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
       N8N_RUNNERS_ENABLED: "true"
+      # SSL certificate configuration for corporate proxies
+      REQUESTS_CA_BUNDLE: /etc/ssl/certs/ca-certificates.crt
+      NPM_CONFIG_CAFILE: /etc/ssl/certs/ca-certificates.crt
+      SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
     volumes:
       - n8n_data:/home/node/.n8n
+      # Mount Zscaler certificate if provided (optional)
+      - ${ZSCALER_ROOT_CA_PATH:-/dev/null}:/tmp/zscaler-root-ca.crt:ro
+    entrypoint: >
+      /bin/sh -c "
+      if [ -f /tmp/zscaler-root-ca.crt ] && [ -s /tmp/zscaler-root-ca.crt ]; then
+        cp /tmp/zscaler-root-ca.crt /usr/local/share/ca-certificates/zscaler-root-ca.crt &&
+        update-ca-certificates &&
+        echo 'Zscaler CA certificate installed for n8n' ||
+        echo 'Warning: Failed to install custom CA certificate for n8n, using defaults';
+      else
+        echo 'No custom CA certificate provided for n8n, using system defaults';
+      fi;
+      if [ -f /usr/local/share/ca-certificates/zscaler-root-ca.crt ]; then
+        export NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/zscaler-root-ca.crt;
+      fi;
+      exec n8n start
+      "
     depends_on:
       postgres-n8n:
         condition: service_healthy
@@ -122,10 +143,16 @@ services:
       - "${OLLAMA_PORT:-11434}:11434"
     environment:
       - OLLAMA_HOST=0.0.0.0:11434
+      # SSL certificate configuration for corporate proxies
+      - SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+      - REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+      - CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
       # Uncomment for browser CORS access (optional)
       # - OLLAMA_ORIGINS=*
     volumes:
       - ollama_models:/root/.ollama
+      # Mount Zscaler certificate if provided (optional)
+      - ${ZSCALER_ROOT_CA_PATH:-/dev/null}:/tmp/zscaler-root-ca.crt:ro
     # Uncomment for NVIDIA GPU support
     # deploy:
     #   resources:
@@ -134,6 +161,18 @@ services:
     #         - driver: nvidia
     #           count: 1
     #           capabilities: [gpu]
+    entrypoint: >
+      /bin/sh -c "
+      if [ -f /tmp/zscaler-root-ca.crt ] && [ -s /tmp/zscaler-root-ca.crt ]; then
+        cp /tmp/zscaler-root-ca.crt /usr/local/share/ca-certificates/zscaler-root-ca.crt &&
+        update-ca-certificates &&
+        echo 'Zscaler CA certificate installed for Ollama' ||
+        echo 'Warning: Failed to install custom CA certificate for Ollama, using defaults';
+      else
+        echo 'No custom CA certificate provided for Ollama, using system defaults';
+      fi &&
+      exec /bin/ollama serve
+      "
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 15s
@@ -155,9 +194,27 @@ services:
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-local-master}
       # Logging
       - JSON_LOGS=True
+      # SSL certificate configuration for corporate proxies
+      - REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+      - SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+      - CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+      - PIP_CERT=/etc/ssl/certs/ca-certificates.crt
     volumes:
       - ./config/litellm.config.yaml:/app/config.yaml:ro
-    command: ["--config", "/app/config.yaml", "--detailed_debug"]
+      # Mount Zscaler certificate if provided (optional)
+      - ${ZSCALER_ROOT_CA_PATH:-/dev/null}:/tmp/zscaler-root-ca.crt:ro
+    entrypoint: >
+      /bin/sh -c "
+      if [ -f /tmp/zscaler-root-ca.crt ] && [ -s /tmp/zscaler-root-ca.crt ]; then
+        cp /tmp/zscaler-root-ca.crt /usr/local/share/ca-certificates/zscaler-root-ca.crt &&
+        update-ca-certificates &&
+        echo 'Zscaler CA certificate installed for LiteLLM' ||
+        echo 'Warning: Failed to install custom CA certificate for LiteLLM, using defaults';
+      else
+        echo 'No custom CA certificate provided for LiteLLM, using system defaults';
+      fi &&
+      exec litellm --config /app/config.yaml --detailed_debug
+      "
     depends_on:
       ollama:
         condition: service_healthy

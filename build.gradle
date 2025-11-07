@@ -75,6 +75,35 @@ task developmentUp {
     doLast {
         println "=== Starting Development Environment ==="
         
+        // Check for SSL certificate and provide helpful message
+        def envFile = file('.env')
+        def certPath = './certs/zscaler-root-ca.crt'
+        def certFile = file(certPath)
+        
+        if (envFile.exists()) {
+            def envContent = envFile.text
+            if (envContent.contains('ZSCALER_ROOT_CA_PATH=') && !envContent.contains('#ZSCALER_ROOT_CA_PATH=')) {
+                // Extract the path from .env
+                def matcher = envContent =~ /ZSCALER_ROOT_CA_PATH=(.+)/
+                if (matcher.find()) {
+                    def configuredPath = matcher[0][1].trim()
+                    def configuredFile = file(configuredPath)
+                    if (configuredFile.exists() && configuredFile.size() > 0) {
+                        println "\n✓ SSL Certificate: Custom CA certificate configured at ${configuredPath}"
+                        println "  Containers will trust this certificate for HTTPS connections"
+                    } else {
+                        println "\nℹ SSL Certificate: Path configured (${configuredPath}) but file not found"
+                        println "  Containers will use system default certificates"
+                        println "  This is fine if you're not behind a corporate proxy"
+                    }
+                }
+            } else {
+                println "\nℹ SSL Certificate: Not configured (optional)"
+                println "  Containers will use system default certificates"
+                println "  If you see certificate errors, see certs/README.md for setup instructions"
+            }
+        }
+        
         // Step 1: Start infrastructure services with Docker Compose (no health check wait)
         println "\n[1/4] Starting infrastructure services (ollama, litellm, n8n, postgres-n8n)..."
         project.exec {
