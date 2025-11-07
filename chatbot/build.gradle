@@ -56,12 +56,16 @@ task npmClean(type: Delete) {
 task buildDockerImage(type: DockerBuildImage) {
     group = 'docker'
     description = 'Builds Docker image for frontend'
-    
+
     dependsOn npmBuild
-    
+
     inputDir = file('.')
     images.add("${project.group}/chatbot-frontend:${project.version}")
     images.add("${project.group}/chatbot-frontend:latest")
+}
+
+docker {
+    url = System.getenv('DOCKER_HOST') ?: 'unix:///var/run/docker.sock'
 }
 
 task pushDockerImage(type: DockerPushImage) {

@@ -11,13 +11,23 @@ version = '0.0.1-SNAPSHOT'
 description = 'Demo project for Spring Boot'
 
 java {
-	toolchain {
-		languageVersion = JavaLanguageVersion.of(17)
-	}
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
 }
 
 tasks.withType(JavaCompile).configureEach {
-	options.compilerArgs += "-parameters"
+    options.compilerArgs += "-parameters"
+    options.release = 17
+}
+
+tasks.named('bootJar') {
+    doFirst {
+        delete fileTree(dir: "${buildDir}/libs", include: '*.jar')
+    }
+}
+
+docker {
+    url = System.getenv('DOCKER_HOST') ?: 'unix:///var/run/docker.sock'
 }
 
 repositories {
