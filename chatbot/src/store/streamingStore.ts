@@ -525,8 +525,9 @@ function handleTextDelta(data: any) {
     messageStore.addMessage(newMessage);
   }
 
+  // Use appendMessageDelta for efficient delta updates
+  messageStore.appendMessageDelta(entry.messageId, delta);
   messageStore.updateMessage(entry.messageId, {
-    content: messageStore.messages.find(m => m.id === entry!.messageId)?.content + delta || delta,
     streaming: true,
     itemId: itemId ?? undefined,
     outputIndex,
