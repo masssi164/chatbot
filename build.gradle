@@ -57,7 +57,7 @@ task buildAllImages {
     group = 'docker'
     description = 'Builds all Docker images for services'
     
-    dependsOn ':chatbot-backend:bootBuildImage'
+    dependsOn ':chatbot-backend:buildDockerImage'
     dependsOn ':chatbot:buildDockerImage'
 }
 
