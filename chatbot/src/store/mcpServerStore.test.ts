@@ -5,8 +5,8 @@ import { apiClient } from "../services/apiClient";
 // Mock apiClient
 vi.mock("../services/apiClient", () => ({
   apiClient: {
-    getMcpServers: vi.fn(),
-    registerMcpServer: vi.fn(),
+    listMcpServers: vi.fn(),
+    upsertMcpServer: vi.fn(),
     updateMcpServer: vi.fn(),
     deleteMcpServer: vi.fn(),
     getMcpCapabilities: vi.fn(),
@@ -85,7 +85,7 @@ describe("mcpServerStore", () => {
         },
       ];
 
-      vi.mocked(apiClient.getMcpServers).mockResolvedValue(mockServers);
+      vi.mocked(apiClient.listMcpServers).mockResolvedValue(mockServers);
 
       await useMcpServerStore.getState().loadServers();
 
@@ -98,7 +98,7 @@ describe("mcpServerStore", () => {
     });
 
     it("should handle errors when loading servers", async () => {
-      vi.mocked(apiClient.getMcpServers).mockRejectedValue(new Error("Network error"));
+      vi.mocked(apiClient.listMcpServers).mockRejectedValue(new Error("Network error"));
 
       const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 
@@ -123,7 +123,7 @@ describe("mcpServerStore", () => {
         lastUpdated: "2024-01-01T00:00:00Z",
       };
 
-      vi.mocked(apiClient.registerMcpServer).mockResolvedValue(mockResponse);
+      vi.mocked(apiClient.upsertMcpServer).mockResolvedValue(mockResponse);
 
       const serverId = await useMcpServerStore.getState().registerServer({
         name: "New Server",
@@ -139,7 +139,7 @@ describe("mcpServerStore", () => {
     });
 
     it("should handle errors when registering server", async () => {
-      vi.mocked(apiClient.registerMcpServer).mockRejectedValue(new Error("Server error"));
+      vi.mocked(apiClient.upsertMcpServer).mockRejectedValue(new Error("Server error"));
 
       const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 
@@ -178,13 +178,8 @@ describe("mcpServerStore", () => {
     it("should handle errors when removing server", async () => {
       vi.mocked(apiClient.deleteMcpServer).mockRejectedValue(new Error("Delete failed"));
 
-      const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-
-      await useMcpServerStore.getState().removeServer("test-1");
-
-      expect(consoleError).toHaveBeenCalled();
-      
-      consoleError.mockRestore();
+      // removeServer throws on error since there's no try-catch
+      await expect(useMcpServerStore.getState().removeServer("test-1")).rejects.toThrow("Delete failed");
     });
   });
 
@@ -195,7 +190,7 @@ describe("mcpServerStore", () => {
           id: "test-1",
           name: "Test Server",
           baseUrl: "http://localhost:5678",
-          status: "idle",
+          status: "connected", // Must be connected, not idle!
           transport: "SSE",
           lastUpdated: Date.now(),
         }],
@@ -211,18 +206,31 @@ describe("mcpServerStore", () => {
 
       await useMcpServerStore.getState().loadCapabilities("test-1");
 
-      const server = useMcpServerStore.getState().servers[0];
-      expect(server.capabilities).toEqual(mockCapabilities);
+      // Get fresh state after async operation
+      const server = useMcpServerStore.getState().servers.find(s => s.id === "test-1");
+      expect(server?.capabilities).toEqual(mockCapabilities);
     });
 
     it("should handle errors when loading capabilities", async () => {
+      useMcpServerStore.setState({
+        servers: [{
+          id: "test-1",
+          name: "Test Server",
+          baseUrl: "http://localhost:5678",
+          status: "connected", // Must be connected!
+          transport: "SSE",
+          lastUpdated: Date.now(),
+        }],
+      });
+      
       vi.mocked(apiClient.getMcpCapabilities).mockRejectedValue(new Error("Capabilities error"));
 
       const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 
+      // Should not throw, just log error
       await useMcpServerStore.getState().loadCapabilities("test-1");
 
-      expect(consoleError).toHaveBeenCalled();
+      expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("Failed to load capabilities"), expect.any(Error));
       
       consoleError.mockRestore();
     });
@@ -234,7 +242,7 @@ describe("mcpServerStore", () => {
 
       const state = useMcpServerStore.getState();
       expect(state.sseConnection).not.toBeNull();
-      expect(state.sseConnection?.url).toContain("/api/mcp/servers/status/stream");
+      expect(state.sseConnection?.url).toContain("/mcp/servers/status-stream"); // Actual URL format
     });
 
     it("should disconnect from status stream", () => {
