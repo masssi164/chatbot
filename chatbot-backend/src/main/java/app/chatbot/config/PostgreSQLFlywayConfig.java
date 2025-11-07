@@ -27,12 +27,8 @@ public class PostgreSQLFlywayConfig {
             // Validierung vor Migration für PostgreSQL 16.x
             flyway.info();
             
-            // Baseline falls nötig (für existierende DB)
-            if (flyway.info().current() == null) {
-                flyway.baseline();
-            }
-            
-            // Standard Migration
+            // Standard Migration - no baseline for fresh databases
+            // Baseline is only needed for existing databases with data but no flyway_schema_history table
             flyway.migrate();
         };
     }
