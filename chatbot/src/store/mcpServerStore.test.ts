@@ -16,15 +16,18 @@ vi.mock("../services/apiClient", () => ({
 
 // Mock EventSource
 class MockEventSource {
+  url: string;
   onmessage: ((event: MessageEvent) => void) | null = null;
   onerror: ((event: Event) => void) | null = null;
   onopen: (() => void) | null = null;
   close = vi.fn();
   
-  constructor(public url: string) {}
+  constructor(url: string) {
+    this.url = url;
+  }
 }
 
-global.EventSource = MockEventSource as any;
+(globalThis as any).EventSource = MockEventSource;
 
 describe("mcpServerStore", () => {
   beforeEach(() => {
@@ -79,6 +82,7 @@ describe("mcpServerStore", () => {
           serverId: "test-1",
           name: "Test Server",
           baseUrl: "http://localhost:5678",
+          hasApiKey: false,
           status: "IDLE" as const,
           transport: "SSE" as const,
           lastUpdated: "2024-01-01T00:00:00Z",
@@ -118,6 +122,7 @@ describe("mcpServerStore", () => {
         serverId: "new-server",
         name: "New Server",
         baseUrl: "http://localhost:5678",
+        hasApiKey: false,
         status: "IDLE" as const,
         transport: "SSE" as const,
         lastUpdated: "2024-01-01T00:00:00Z",
@@ -200,6 +205,10 @@ describe("mcpServerStore", () => {
         tools: [{ name: "test-tool", description: "A test tool" }],
         resources: [],
         prompts: [],
+        serverInfo: {
+          name: "Test Server",
+          version: "1.0.0",
+        },
       };
 
       vi.mocked(apiClient.getMcpCapabilities).mockResolvedValue(mockCapabilities);

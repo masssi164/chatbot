@@ -41,7 +41,7 @@ describe("streamingStore", () => {
     });
 
     useConversationStore.setState({
-      conversations: [],
+      conversationSummaries: [],
       conversationId: null,
       conversationTitle: null,
       loading: false,
@@ -128,11 +128,16 @@ describe("streamingStore", () => {
     beforeEach(() => {
       // Set up conversation
       useConversationStore.setState({
-        conversationId: "conv-123",
+        conversationId: 123,
         conversationTitle: "Test Conversation",
       });
 
-      vi.mocked(apiClient.addMessage).mockResolvedValue(undefined);
+      vi.mocked(apiClient.addMessage).mockResolvedValue({
+        id: 1,
+        role: "USER",
+        content: "Test message",
+        createdAt: new Date().toISOString(),
+      });
     });
 
     it("should reject empty messages", async () => {
@@ -173,7 +178,7 @@ describe("streamingStore", () => {
       let capturedOnMessage: any;
       let capturedOnOpen: any;
 
-      vi.mocked(fetchEventSource).mockImplementation(async (url, options: any) => {
+      vi.mocked(fetchEventSource).mockImplementation(async (_url, options: any) => {
         capturedOnMessage = options.onmessage;
         capturedOnOpen = options.onopen;
 
@@ -219,7 +224,7 @@ describe("streamingStore", () => {
     });
 
     it("should handle stream errors", async () => {
-      vi.mocked(fetchEventSource).mockImplementation(async (url, options: any) => {
+      vi.mocked(fetchEventSource).mockImplementation(async (_url, options: any) => {
         await options.onopen({ ok: true, status: 200 });
         options.onerror(new Error("Stream error"));
       });
@@ -232,7 +237,7 @@ describe("streamingStore", () => {
     });
 
     it("should handle abort signal", async () => {
-      vi.mocked(fetchEventSource).mockImplementation(async (url, options: any) => {
+      vi.mocked(fetchEventSource).mockImplementation(async (_url, _options: any) => {
         const controller = new AbortController();
         controller.abort();
         throw new DOMException("Aborted", "AbortError");
@@ -247,17 +252,23 @@ describe("streamingStore", () => {
 
   describe("sendApprovalResponse", () => {
     beforeEach(() => {
-      useConversationStore.setState({ conversationId: "conv-123" });
+      useConversationStore.setState({ conversationId: 123 });
       useToolCallStore.setState({
         pendingApprovalRequest: {
           approvalRequestId: "approval-123",
           serverLabel: "test-server",
           toolName: "test-tool",
-          arguments: { param: "value" },
+          arguments: JSON.stringify({ param: "value" }),
         },
       });
 
-      vi.mocked(apiClient.setToolApprovalPolicy).mockResolvedValue(undefined);
+      vi.mocked(apiClient.setToolApprovalPolicy).mockResolvedValue({
+        serverId: "test-server",
+        toolName: "test-tool",
+        policy: "always",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
     });
 
     it("should do nothing if no pending approval", async () => {
@@ -277,7 +288,7 @@ describe("streamingStore", () => {
     });
 
     it("should send approval without remembering", async () => {
-      vi.mocked(fetchEventSource).mockImplementation(async (url, options: any) => {
+      vi.mocked(fetchEventSource).mockImplementation(async (_url, options: any) => {
         await options.onopen({ ok: true, status: 200 });
         options.onclose?.();
       });
@@ -290,7 +301,7 @@ describe("streamingStore", () => {
     });
 
     it("should send approval with remember policy (always)", async () => {
-      vi.mocked(fetchEventSource).mockImplementation(async (url, options: any) => {
+      vi.mocked(fetchEventSource).mockImplementation(async (_url, options: any) => {
         await options.onopen({ ok: true, status: 200 });
         options.onclose?.();
       });
@@ -305,7 +316,7 @@ describe("streamingStore", () => {
     });
 
     it("should send denial with remember policy (never)", async () => {
-      vi.mocked(fetchEventSource).mockImplementation(async (url, options: any) => {
+      vi.mocked(fetchEventSource).mockImplementation(async (_url, options: any) => {
         await options.onopen({ ok: true, status: 200 });
         options.onclose?.();
       });
@@ -333,7 +344,7 @@ describe("streamingStore", () => {
         new Error("Policy update failed")
       );
 
-      vi.mocked(fetchEventSource).mockImplementation(async (url, options: any) => {
+      vi.mocked(fetchEventSource).mockImplementation(async (_url, options: any) => {
         await options.onopen({ ok: true, status: 200 });
         options.onclose?.();
       });
@@ -350,13 +361,18 @@ describe("streamingStore", () => {
 
     beforeEach(() => {
       useConversationStore.setState({
-        conversationId: "conv-123",
+        conversationId: 123,
         conversationTitle: "Test",
       });
 
-      vi.mocked(apiClient.addMessage).mockResolvedValue(undefined);
+      vi.mocked(apiClient.addMessage).mockResolvedValue({
+        id: 1,
+        role: "USER",
+        content: "Test message",
+        createdAt: new Date().toISOString(),
+      });
 
-      vi.mocked(fetchEventSource).mockImplementation(async (url, options: any) => {
+      vi.mocked(fetchEventSource).mockImplementation(async (_url, options: any) => {
         onMessage = options.onmessage;
         await options.onopen({ ok: true, status: 200 });
       });
@@ -464,13 +480,18 @@ describe("streamingStore", () => {
 
     beforeEach(async () => {
       useConversationStore.setState({
-        conversationId: "conv-123",
+        conversationId: 123,
         conversationTitle: "Test",
       });
 
-      vi.mocked(apiClient.addMessage).mockResolvedValue(undefined);
+      vi.mocked(apiClient.addMessage).mockResolvedValue({
+        id: 1,
+        role: "USER",
+        content: "Test message",
+        createdAt: new Date().toISOString(),
+      });
 
-      vi.mocked(fetchEventSource).mockImplementation(async (url, options: any) => {
+      vi.mocked(fetchEventSource).mockImplementation(async (_url, options: any) => {
         onMessage = options.onmessage;
         await options.onopen({ ok: true, status: 200 });
       });
@@ -550,13 +571,18 @@ describe("streamingStore", () => {
 
     beforeEach(async () => {
       useConversationStore.setState({
-        conversationId: "conv-123",
+        conversationId: 123,
         conversationTitle: "Test",
       });
 
-      vi.mocked(apiClient.addMessage).mockResolvedValue(undefined);
+      vi.mocked(apiClient.addMessage).mockResolvedValue({
+        id: 1,
+        role: "USER",
+        content: "Test message",
+        createdAt: new Date().toISOString(),
+      });
 
-      vi.mocked(fetchEventSource).mockImplementation(async (url, options: any) => {
+      vi.mocked(fetchEventSource).mockImplementation(async (_url, options: any) => {
         onMessage = options.onmessage;
         await options.onopen({ ok: true, status: 200 });
       });
@@ -738,13 +764,18 @@ describe("streamingStore", () => {
 
     beforeEach(async () => {
       useConversationStore.setState({
-        conversationId: "conv-123",
+        conversationId: 123,
         conversationTitle: "Test",
       });
 
-      vi.mocked(apiClient.addMessage).mockResolvedValue(undefined);
+      vi.mocked(apiClient.addMessage).mockResolvedValue({
+        id: 1,
+        role: "USER",
+        content: "Test message",
+        createdAt: new Date().toISOString(),
+      });
 
-      vi.mocked(fetchEventSource).mockImplementation(async (url, options: any) => {
+      vi.mocked(fetchEventSource).mockImplementation(async (_url, options: any) => {
         onMessage = options.onmessage;
         await options.onopen({ ok: true, status: 200 });
       });
