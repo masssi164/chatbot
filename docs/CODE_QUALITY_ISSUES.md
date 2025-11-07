@@ -5,11 +5,11 @@ This document details all bugs, maintainability issues, and code quality concern
 ## 🔴 Critical Issues (Fixed)
 
 ### 1. Debug Statements in Production Code ✅ FIXED
-- **Location**: `McpSessionRegistry.java`
+- **Location**: `McpSessionRegistry.java`, `PostgreSQLFlywayConfig.java`
 - **Issue**: Multiple `System.err.println` statements with emoji debugging
 - **Impact**: Performance overhead, unprofessional logs in production
 - **Fix**: Replaced with proper SLF4J logging at appropriate levels
-- **Lines**: 74, 76, 77, 83, 102, 123, 142, 156
+- **Lines**: McpSessionRegistry: 74, 76, 77, 83, 102, 123, 142, 156, 255
 
 ### 2. Deprecated Testing Annotations ✅ FIXED
 - **Location**: `ConversationControllerTest.java`

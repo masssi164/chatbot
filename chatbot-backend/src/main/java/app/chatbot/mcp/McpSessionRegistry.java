@@ -252,7 +252,7 @@ public class McpSessionRegistry implements ApplicationListener<ContextClosedEven
     private McpClientTransport createTransport(String targetUrl,
                                                String apiKey,
                                                McpTransport transport) {
-        System.err.println("🏗️ createTransport called: URL=" + targetUrl + ", transport=" + transport);
+        log.debug("createTransport called: URL={}, transport={}", targetUrl, transport);
         
         HttpClient.Builder clientBuilder = HttpClient.newBuilder()
             .connectTimeout(properties.connectTimeout());
