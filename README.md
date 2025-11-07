@@ -68,6 +68,8 @@ cd chatbot
 ./gradlew developmentUp
 ```
 
+> **Note**: The Gradle tasks automatically create a `.env` file from `.env.example` if it doesn't exist. You can customize environment variables by editing the `.env` file.
+
 ### 2. Run Backend
 
 ```bash
@@ -243,6 +245,8 @@ Configure in Settings → MCP Servers → Approval Policies
 # Or manually
 docker compose up -d
 ```
+
+> **Note**: When using `./gradlew up` or `./gradlew composeUp`, the `.env` file is automatically created from `.env.example` if it doesn't exist. For production, review and customize the `.env` file with your specific configuration (database passwords, API keys, etc.).
 
 Services available at:
 - Frontend: http://localhost:3000
