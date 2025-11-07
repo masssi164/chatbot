@@ -39,7 +39,7 @@ services:
     volumes:
       - postgres_n8n_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-n8n} -d ${POSTGRES_DB:-n8n}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-n8n} -d ${POSTGRES_DB:-n8n} > /dev/null 2>&1"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -55,7 +55,7 @@ services:
     volumes:
       - postgres_chatbot_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-chatbot_user} -d ${DB_NAME:-chatbot_db}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-chatbot_user} -d ${DB_NAME:-chatbot_db} > /dev/null 2>&1"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -84,7 +84,7 @@ services:
       # JVM settings
       JAVA_OPTS: "-Xmx1024m -Xms512m"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health || exit 1"]
       interval: 30s
       timeout: 3s
       start_period: 60s
@@ -105,7 +105,7 @@ services:
       # Vite environment variables for API URL
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8080}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost/ || exit 1"]
       interval: 30s
       timeout: 3s
       start_period: 5s
@@ -135,7 +135,7 @@ services:
     #           count: 1
     #           capabilities: [gpu]
     healthcheck:
-      test: ["CMD", "ollama", "list"]
+      test: ["CMD-SHELL", "ollama list > /dev/null 2>&1 || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 20
