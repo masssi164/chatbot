@@ -23,7 +23,6 @@ services:
       N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
       N8N_RUNNERS_ENABLED: "true"
       # SSL certificate configuration for corporate proxies
-      NODE_EXTRA_CA_CERTS: /usr/local/share/ca-certificates/zscaler-root-ca.crt
       REQUESTS_CA_BUNDLE: /etc/ssl/certs/ca-certificates.crt
       NPM_CONFIG_CAFILE: /etc/ssl/certs/ca-certificates.crt
       SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
@@ -36,6 +35,7 @@ services:
       if [ -f /tmp/zscaler-root-ca.crt ] && [ -s /tmp/zscaler-root-ca.crt ]; then
         cp /tmp/zscaler-root-ca.crt /usr/local/share/ca-certificates/zscaler-root-ca.crt &&
         update-ca-certificates &&
+        export NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/zscaler-root-ca.crt &&
         echo 'Zscaler CA certificate installed for n8n' ||
         echo 'Warning: Failed to install custom CA certificate for n8n, using defaults';
       else
