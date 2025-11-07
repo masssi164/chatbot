@@ -63,11 +63,14 @@ task buildAllImages {
 
 // Configure Docker Compose to ensure .env and build images before starting
 composeUp.dependsOn ensureEnvFile, buildAllImages
+composeBuild.dependsOn ensureEnvFile
 
 // Development mode - starts infrastructure in Docker, apps locally
 task developmentUp {
     group = 'application'
     description = 'Starts infrastructure (ollama, litellm, n8n, postgres-n8n) in Docker for local development'
+    
+    dependsOn ensureEnvFile
     
     doLast {
         println "=== Starting Development Environment ==="
@@ -164,6 +167,8 @@ task developmentUp {
 task externalServicesUp {
     group = 'application'
     description = 'Starts only external services (postgres-*, n8n, ollama, litellm) - for local JVM development'
+    
+    dependsOn ensureEnvFile
     
     doLast {
         project.exec {
