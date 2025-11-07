@@ -1,4 +1,4 @@
-import { useChatStore } from "../store/chatStore";
+import { useToolCallStore } from "../store/toolCallStore";
 import { ToolCallDetails } from "./ToolCallDetails";
 import "./ToolCallList.css";
 
@@ -7,7 +7,7 @@ interface ToolCallListProps {
 }
 
 export function ToolCallList({ conversationId }: ToolCallListProps) {
-  const toolCalls = useChatStore((state) => state.toolCalls);
+  const toolCalls = useToolCallStore((state) => state.toolCalls);
 
   if (!conversationId || toolCalls.length === 0) {
     return null;
