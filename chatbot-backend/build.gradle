@@ -34,8 +34,8 @@ dependencies {
     // Database drivers - H2 for dev/test, PostgreSQL for production
     runtimeOnly 'com.h2database:h2'
     runtimeOnly 'io.r2dbc:r2dbc-h2'
-    runtimeOnly 'org.postgresql:r2dbc-postgresql:1.0.8.RELEASE'  // Spring Boot 3.4.11 kompatible Version
-    runtimeOnly 'org.postgresql:postgresql:42.7.8' // Spring Boot 3.4.11 getestete PostgreSQL Driver Version
+    runtimeOnly 'org.postgresql:r2dbc-postgresql:1.0.8.RELEASE'  // Spring Boot 3.4.11 compatible version
+    runtimeOnly 'org.postgresql:postgresql:42.7.8' // Spring Boot 3.4.11 tested PostgreSQL driver version
     
     implementation 'org.openapitools:jackson-databind-nullable:0.2.6'
     implementation 'io.projectreactor.netty:reactor-netty-http'
