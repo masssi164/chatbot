@@ -178,7 +178,7 @@ describe("mcpServerStore", () => {
     it("should handle errors when removing server", async () => {
       vi.mocked(apiClient.deleteMcpServer).mockRejectedValue(new Error("Delete failed"));
 
-      // removeServer throws on error since there's no try-catch
+      // removeServer throws on error since implementation has no try-catch wrapper
       await expect(useMcpServerStore.getState().removeServer("test-1")).rejects.toThrow("Delete failed");
     });
   });
@@ -190,7 +190,7 @@ describe("mcpServerStore", () => {
           id: "test-1",
           name: "Test Server",
           baseUrl: "http://localhost:5678",
-          status: "connected", // Must be connected, not idle!
+          status: "connected", // Must be "connected" - loadCapabilities only works for servers with connected status
           transport: "SSE",
           lastUpdated: Date.now(),
         }],
@@ -217,7 +217,7 @@ describe("mcpServerStore", () => {
           id: "test-1",
           name: "Test Server",
           baseUrl: "http://localhost:5678",
-          status: "connected", // Must be connected!
+          status: "connected", // Must be "connected" - loadCapabilities early returns if status !== "connected"
           transport: "SSE",
           lastUpdated: Date.now(),
         }],
