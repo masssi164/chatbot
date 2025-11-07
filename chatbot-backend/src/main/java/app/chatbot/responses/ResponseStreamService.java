@@ -92,7 +92,7 @@ public class ResponseStreamService {
                     
                     // Debug: Log the complete request payload to OpenAI
                     try {
-                        log.info("🚀 Request to OpenAI Responses API: {}", objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(mutablePayload));
+                        log.debug("Request to OpenAI Responses API: {}", objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(mutablePayload));
                     } catch (Exception e) {
                         log.warn("Failed to log request payload", e);
                     }
@@ -208,7 +208,7 @@ public class ResponseStreamService {
                 payload.putArray("input").add(approvalInput);
                 payload.put("stream", true);
                 
-                log.info("🔔 Sending MCP Approval Response: conversation={}, approval_request_id={}, approve={}, previous_response_id={}", 
+                log.info("Sending MCP Approval Response: conversation={}, approval_request_id={}, approve={}, previous_response_id={}", 
                     conversationId, approvalRequestId, approve, previousResponseId);
                 
                 // Create new stream state for approval response
@@ -223,8 +223,8 @@ public class ResponseStreamService {
                     .bodyToFlux(SSE_TYPE)
                     .flatMap(sseEvent -> handleEvent(sseEvent, state)
                         .thenReturn(sseEvent))
-                    .doOnComplete(() -> log.info("✅ Approval response stream completed for conversation {}", conversationId))
-                    .doOnError(error -> log.error("❌ Approval response stream failed for conversation {}: {}", 
+                    .doOnComplete(() -> log.info("Approval response stream completed for conversation {}", conversationId))
+                    .doOnError(error -> log.error("Approval response stream failed for conversation {}: {}", 
                         conversationId, error.getMessage()));
             });
     }
@@ -541,7 +541,7 @@ public class ResponseStreamService {
         return conversationService.upsertToolCall(state.conversationId, itemId, type, outputIndex, attributes)
                 .doOnNext(toolCall -> {
                     state.toolCalls.put(itemId, ToolCallTracker.from(toolCall));
-                    log.info("✅ Tool Call status updated - item_id: {}, final_status: {}", itemId, toolCall.getStatus());
+                    log.info("Tool Call status updated - item_id: {}, final_status: {}", itemId, toolCall.getStatus());
                 })
                 .then();
     }
@@ -581,7 +581,7 @@ public class ResponseStreamService {
         String toolName = payload.path("tool_name").asText(null);
         String arguments = payload.path("arguments").asText(null);
         
-        log.info("🔔 MCP Approval Request: tool={}, server={}, approval_request_id={}", 
+        log.info("MCP Approval Request: tool={}, server={}, approval_request_id={}", 
             toolName, serverLabel, approvalRequestId);
         
         // Event is automatically passed through to frontend via SSE
@@ -626,7 +626,7 @@ public class ResponseStreamService {
         }
 
         return ServerSentEvent.<String>builder(errorNode.toString())
-                .event("response.failed")
+                .event(EVENT_RESPONSE_FAILED)
                 .build();
     }
 
@@ -643,7 +643,7 @@ public class ResponseStreamService {
         state.responseId = responseId;
         state.status = ConversationStatus.STREAMING;
 
-        log.info("✅ Response created: {} for conversation: {}", responseId, state.conversationId);
+        log.info("Response created: {} for conversation: {}", responseId, state.conversationId);
 
         return conversationService.updateConversationResponseId(state.conversationId, responseId)
                 .then();
@@ -657,7 +657,7 @@ public class ResponseStreamService {
         String responseId = response.path("id").asText();
         state.status = ConversationStatus.COMPLETED;
 
-        log.info("✅ Response completed: {} for conversation: {}", responseId, state.conversationId);
+        log.info("Response completed: {} for conversation: {}", responseId, state.conversationId);
 
         return conversationService.finalizeConversation(
                 state.conversationId,
@@ -697,7 +697,7 @@ public class ResponseStreamService {
         String errorMessage = error.path("message").asText("");
         state.status = ConversationStatus.FAILED;
 
-        log.error("❌ Response failed: {} - {} (conversation: {})",
+        log.error("Response failed: {} - {} (conversation: {})",
                 errorCode, errorMessage, state.conversationId);
 
         return conversationService.finalizeConversation(
@@ -718,9 +718,9 @@ public class ResponseStreamService {
 
         // Special handling for rate limits
         if ("rate_limit_exceeded".equals(code)) {
-            log.warn("⚠️ Rate limit hit for conversation {}: {}", state.conversationId, message);
+            log.warn("Rate limit hit for conversation {}: {}", state.conversationId, message);
         } else {
-            log.error("❌ Response error: {} - {} (conversation: {})", code, message, state.conversationId);
+            log.error("Response error: {} - {} (conversation: {})", code, message, state.conversationId);
         }
 
         return Mono.empty();
@@ -736,7 +736,7 @@ public class ResponseStreamService {
 
         state.status = ConversationStatus.FAILED;
 
-        log.error("❌ CRITICAL ERROR: {} - {} (conversation: {})",
+        log.error("CRITICAL ERROR: {} - {} (conversation: {})",
                 code, message, state.conversationId);
 
         return conversationService.finalizeConversation(
