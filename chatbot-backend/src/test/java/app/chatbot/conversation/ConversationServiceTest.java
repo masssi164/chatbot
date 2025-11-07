@@ -199,4 +199,290 @@ class ConversationServiceTest {
                 .expectNextCount(1)
                 .verifyComplete();
     }
+
+    @Test
+    void updateMessageContentUpdatesExistingMessage() {
+        Conversation conversation = Conversation.builder().id(20L).build();
+        Message existing = Message.builder()
+                .id(201L)
+                .conversationId(20L)
+                .itemId("item-x")
+                .role(MessageRole.ASSISTANT)
+                .content("Old")
+                .build();
+
+        Mockito.when(messageRepository.findByConversationIdAndItemId(20L, "item-x"))
+                .thenReturn(Mono.just(existing));
+        Mockito.when(messageRepository.save(any()))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        Mockito.when(conversationRepository.findById(20L)).thenReturn(Mono.just(conversation));
+        Mockito.when(conversationRepository.save(any()))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(service.updateMessageContent(20L, "item-x", "New content", "{}", 5))
+                .assertNext(message -> {
+                    assertThat(message.getContent()).isEqualTo("New content");
+                    assertThat(message.getOutputIndex()).isEqualTo(5);
+                })
+                .verifyComplete();
+
+        verify(messageRepository).save(any());
+    }
+
+    @Test
+    void updateConversationResponseIdSetsResponseIdAndStatus() {
+        Conversation conversation = Conversation.builder()
+                .id(30L)
+                .title("Test")
+                .build();
+
+        Mockito.when(conversationRepository.findById(30L)).thenReturn(Mono.just(conversation));
+        Mockito.when(conversationRepository.save(any()))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(service.updateConversationResponseId(30L, "resp-123"))
+                .assertNext(conv -> {
+                    assertThat(conv.getResponseId()).isEqualTo("resp-123");
+                    assertThat(conv.getStatus()).isEqualTo(ConversationStatus.STREAMING);
+                })
+                .verifyComplete();
+
+        verify(conversationRepository).save(any());
+    }
+
+    @Test
+    void finalizeConversationWithoutReasonSetsStatus() {
+        Conversation conversation = Conversation.builder()
+                .id(40L)
+                .title("Test")
+                .build();
+
+        Mockito.when(conversationRepository.findById(40L)).thenReturn(Mono.just(conversation));
+        Mockito.when(conversationRepository.save(any()))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(service.finalizeConversation(40L, "resp-456", ConversationStatus.COMPLETED))
+                .assertNext(conv -> {
+                    assertThat(conv.getResponseId()).isEqualTo("resp-456");
+                    assertThat(conv.getStatus()).isEqualTo(ConversationStatus.COMPLETED);
+                    assertThat(conv.getCompletionReason()).isNull();
+                })
+                .verifyComplete();
+
+        verify(conversationRepository).save(any());
+    }
+
+    @Test
+    void finalizeConversationWithReasonSetsStatusAndReason() {
+        Conversation conversation = Conversation.builder()
+                .id(50L)
+                .title("Test")
+                .build();
+
+        Mockito.when(conversationRepository.findById(50L)).thenReturn(Mono.just(conversation));
+        Mockito.when(conversationRepository.save(any()))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(service.finalizeConversation(50L, "resp-789", ConversationStatus.INCOMPLETE, "timeout"))
+                .assertNext(conv -> {
+                    assertThat(conv.getResponseId()).isEqualTo("resp-789");
+                    assertThat(conv.getStatus()).isEqualTo(ConversationStatus.INCOMPLETE);
+                    assertThat(conv.getCompletionReason()).isEqualTo("timeout");
+                })
+                .verifyComplete();
+
+        verify(conversationRepository).save(any());
+    }
+
+    @Test
+    void finalizeConversationWithoutResponseIdPreservesExisting() {
+        Conversation conversation = Conversation.builder()
+                .id(60L)
+                .title("Test")
+                .responseId("existing-resp")
+                .build();
+
+        Mockito.when(conversationRepository.findById(60L)).thenReturn(Mono.just(conversation));
+        Mockito.when(conversationRepository.save(any()))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(service.finalizeConversation(60L, null, ConversationStatus.COMPLETED, null))
+                .assertNext(conv -> {
+                    assertThat(conv.getResponseId()).isEqualTo("existing-resp");
+                    assertThat(conv.getStatus()).isEqualTo(ConversationStatus.COMPLETED);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void upsertToolCallHandlesDuplicateKeyException() {
+        Conversation conversation = Conversation.builder().id(70L).build();
+        ToolCall existingToolCall = ToolCall.builder()
+                .id(701L)
+                .conversationId(70L)
+                .itemId("tool-dup")
+                .type(ToolCallType.MCP)
+                .status(ToolCallStatus.IN_PROGRESS)
+                .build();
+
+        Mockito.when(toolCallRepository.findByConversationIdAndItemId(70L, "tool-dup"))
+                .thenReturn(Mono.empty())
+                .thenReturn(Mono.just(existingToolCall));
+        Mockito.when(toolCallRepository.save(any()))
+                .thenReturn(Mono.error(new org.springframework.dao.DuplicateKeyException("Duplicate key")))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        Mockito.when(conversationRepository.findById(70L)).thenReturn(Mono.just(conversation));
+        Mockito.when(conversationRepository.save(any()))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(service.upsertToolCall(70L, "tool-dup", ToolCallType.MCP, 1, Map.of()))
+                .expectNextMatches(toolCall -> toolCall.getItemId().equals("tool-dup"))
+                .verifyComplete();
+
+        verify(toolCallRepository, times(2)).findByConversationIdAndItemId(70L, "tool-dup");
+        verify(toolCallRepository, times(2)).save(any());
+    }
+
+    @Test
+    void upsertToolCallHandlesR2dbcDataIntegrityViolationException() {
+        Conversation conversation = Conversation.builder().id(80L).build();
+        ToolCall existingToolCall = ToolCall.builder()
+                .id(801L)
+                .conversationId(80L)
+                .itemId("tool-r2dbc")
+                .type(ToolCallType.FUNCTION)
+                .status(ToolCallStatus.IN_PROGRESS)
+                .build();
+
+        Mockito.when(toolCallRepository.findByConversationIdAndItemId(80L, "tool-r2dbc"))
+                .thenReturn(Mono.empty())
+                .thenReturn(Mono.just(existingToolCall));
+        Mockito.when(toolCallRepository.save(any()))
+                .thenReturn(Mono.error(new io.r2dbc.spi.R2dbcDataIntegrityViolationException("Constraint violation")))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        Mockito.when(conversationRepository.findById(80L)).thenReturn(Mono.just(conversation));
+        Mockito.when(conversationRepository.save(any()))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(service.upsertToolCall(80L, "tool-r2dbc", ToolCallType.FUNCTION, 2, Map.of()))
+                .expectNextMatches(toolCall -> toolCall.getItemId().equals("tool-r2dbc"))
+                .verifyComplete();
+
+        verify(toolCallRepository, times(2)).findByConversationIdAndItemId(80L, "tool-r2dbc");
+    }
+
+    @Test
+    void upsertToolCallRethrowsOtherExceptions() {
+        Conversation conversation = Conversation.builder().id(90L).build();
+
+        Mockito.when(toolCallRepository.findByConversationIdAndItemId(90L, "tool-error"))
+                .thenReturn(Mono.empty());
+        Mockito.when(toolCallRepository.save(any()))
+                .thenReturn(Mono.error(new RuntimeException("Unexpected error")));
+        Mockito.when(conversationRepository.findById(90L)).thenReturn(Mono.just(conversation));
+
+        StepVerifier.create(service.upsertToolCall(90L, "tool-error", ToolCallType.MCP, 3, Map.of()))
+                .expectError(RuntimeException.class)
+                .verify();
+    }
+
+    @Test
+    void applyToolCallAttributesHandlesNullAttributes() {
+        Conversation conversation = Conversation.builder().id(100L).build();
+        Mockito.when(toolCallRepository.findByConversationIdAndItemId(100L, "tool-null"))
+                .thenReturn(Mono.empty());
+        Mockito.when(toolCallRepository.save(any()))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        Mockito.when(conversationRepository.findById(100L)).thenReturn(Mono.just(conversation));
+        Mockito.when(conversationRepository.save(any()))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(service.upsertToolCall(100L, "tool-null", ToolCallType.MCP, 0, null))
+                .assertNext(toolCall -> {
+                    assertThat(toolCall.getStatus()).isEqualTo(ToolCallStatus.IN_PROGRESS);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void applyToolCallAttributesHandlesEmptyAttributes() {
+        Conversation conversation = Conversation.builder().id(110L).build();
+        Mockito.when(toolCallRepository.findByConversationIdAndItemId(110L, "tool-empty"))
+                .thenReturn(Mono.empty());
+        Mockito.when(toolCallRepository.save(any()))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        Mockito.when(conversationRepository.findById(110L)).thenReturn(Mono.just(conversation));
+        Mockito.when(conversationRepository.save(any()))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(service.upsertToolCall(110L, "tool-empty", ToolCallType.FUNCTION, 0, Map.of()))
+                .assertNext(toolCall -> {
+                    assertThat(toolCall.getStatus()).isEqualTo(ToolCallStatus.IN_PROGRESS);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void ensureConversationDoesNotUpdateTitleWhenNull() {
+        Conversation existing = Conversation.builder()
+                .id(120L)
+                .title("Original")
+                .createdAt(Instant.now().minusSeconds(60))
+                .updatedAt(Instant.now().minusSeconds(60))
+                .build();
+
+        Mockito.when(conversationRepository.findById(120L)).thenReturn(Mono.just(existing));
+        Mockito.when(conversationRepository.save(any()))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(service.ensureConversation(120L, null))
+                .assertNext(conversation -> {
+                    assertThat(conversation.getTitle()).isEqualTo("Original");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void ensureConversationDoesNotUpdateTitleWhenSame() {
+        Conversation existing = Conversation.builder()
+                .id(130L)
+                .title("Same Title")
+                .createdAt(Instant.now().minusSeconds(60))
+                .updatedAt(Instant.now().minusSeconds(60))
+                .build();
+
+        Mockito.when(conversationRepository.findById(130L)).thenReturn(Mono.just(existing));
+        Mockito.when(conversationRepository.save(any()))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(service.ensureConversation(130L, "Same Title"))
+                .assertNext(conversation -> {
+                    assertThat(conversation.getTitle()).isEqualTo("Same Title");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void ensureConversationHandlesWhitespaceTitle() {
+        Mockito.when(conversationRepository.save(any()))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(service.ensureConversation(null, "   "))
+                .assertNext(conversation -> {
+                    assertThat(conversation.getTitle()).isNull();
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void ensureConversationHandlesEmptyStringTitle() {
+        Mockito.when(conversationRepository.save(any()))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(service.ensureConversation(null, ""))
+                .assertNext(conversation -> {
+                    assertThat(conversation.getTitle()).isNull();
+                })
+                .verifyComplete();
+    }
 }
