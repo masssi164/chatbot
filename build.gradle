@@ -6,22 +6,31 @@ plugins {
 // Docker Compose configuration
 dockerCompose {
     useComposeFiles = ['docker-compose.yml']
-    
-    // Wait for services to be healthy before proceeding
+
     waitForTcpPorts = true
-    waitForHealthyStateTimeout = java.time.Duration.ofMinutes(5)
-    
-    // Don't stop containers automatically (useful for development)
+    // längere Wartezeit für offene TCP-Ports (Default 15m; setze bei Bedarf höher)
+    waitForTcpPortsTimeout = java.time.Duration.ofMinutes(20)
+    waitAfterTcpProbeFailure = java.time.Duration.ofSeconds(2)
+    // Falls du Port 3000 ignorieren willst (z.B. weil du Frontend anders prüfst)
+    // tcpPortsToIgnoreWhenWaiting = [3000]
+
+    // health-checks länger warten lassen
+    waitForHealthyStateTimeout = java.time.Duration.ofMinutes(10)
+    waitAfterHealthyStateProbeFailure = java.time.Duration.ofSeconds(5)
+
+    // Logging / Debugging
+    captureContainersOutput = true
+    // statt Konsole: alle Services in Dateien schreiben
+    captureContainersOutputToFiles = project.file('build/containers-logs')
+    // wo composeLogs hingehen (default build/containers-logs)
+    containerLogToDir = project.file('build/containers-logs')
+
+    // hilfsweise behalten bei Startup-Failure (zum Debuggen)
+    retainContainersOnStartupFailure = true
+
     stopContainers = false
-    
-    // Remove containers on down
     removeContainers = true
     removeVolumes = false
-    
-    // Capture container output for debugging
-    captureContainersOutput = true
-    
-    // Project name
     projectName = 'chatbot'
 }
 
