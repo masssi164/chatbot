@@ -13,7 +13,7 @@ OLLAMA_HOST="${OLLAMA_HOST:-ollama}"
 OLLAMA_PORT="${OLLAMA_PORT:-11434}"
 OLLAMA_BASE_URL="${OLLAMA_API_BASE:-http://${OLLAMA_HOST}:${OLLAMA_PORT}}"
 SEED_TIMEOUT="${OLLAMA_SEED_TIMEOUT:-600}"
-MODELS_RAW="${OLLAMA_SEED_MODELS:-llama3.2,mistral,qwen2.5:7b}"
+MODELS_RAW="${OLLAMA_SEED_MODELS:-llama3.2,mistral,qwen2.5}"
 
 # Normalize models list (commas or whitespace) and remove empty entries
 IFS=',' read -ra MODELS_FROM_COMMAS <<< "${MODELS_RAW// /,}"

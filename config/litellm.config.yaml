@@ -9,12 +9,6 @@ model_list:
       api_base: http://ollama:11434
       keep_alive: "8m"  # Keep model in RAM for 8 minutes
       
-  - model_name: llama3.1
-    litellm_params:
-      model: ollama_chat/llama3.1
-      api_base: http://ollama:11434
-      keep_alive: "8m"
-      
   - model_name: mistral
     litellm_params:
       model: ollama_chat/mistral

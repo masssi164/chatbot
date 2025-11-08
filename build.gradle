@@ -231,9 +231,9 @@ task rebuild {
 task ollamaInstallModels {
     group = 'ollama'
     description = 'Installs common Ollama models (llama3.2, mistral, qwen2.5)'
-    
+
     doLast {
-        def models = ['llama3.2', 'llama3.1', 'mistral', 'qwen2.5:7b']
+        def models = ['llama3.2', 'mistral', 'qwen2.5']
         models.each { model ->
             println "Installing Ollama model: ${model}"
             try {
