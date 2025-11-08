@@ -70,6 +70,8 @@ cd chatbot
 
 > **Note**: The Gradle tasks automatically create a `.env` file from `.env.example` if it doesn't exist. You can customize environment variables by editing the `.env` file.
 
+> **Ollama models**: A dedicated `ollama-seeder` service now preloads the Ollama models defined in `OLLAMA_SEED_MODELS` (default: `llama3.2,mistral,qwen2.5:7b`). Adjust this variable in your `.env` file if you need a different model set.
+
 ### 2. Run Backend
 
 ```bash

@@ -141,6 +141,21 @@ services:
       retries: 20
       start_period: 60s
 
+  # Ollama Seeder - Preload required models before LiteLLM starts
+  ollama-seeder:
+    build:
+      context: ./docker/ollama-seeder
+    restart: "no"
+    environment:
+      OLLAMA_HOST: ${OLLAMA_HOST:-ollama}
+      OLLAMA_PORT: ${OLLAMA_PORT:-11434}
+      OLLAMA_API_BASE: ${OLLAMA_API_BASE:-http://ollama:11434}
+      OLLAMA_SEED_MODELS: ${OLLAMA_SEED_MODELS:-llama3.2,mistral,qwen2.5:7b}
+      OLLAMA_SEED_TIMEOUT: ${OLLAMA_SEED_TIMEOUT:-600}
+    depends_on:
+      ollama:
+        condition: service_healthy
+
   # LiteLLM - OpenAI-compatible API Gateway
   litellm:
     image: ghcr.io/berriai/litellm:main-stable
@@ -162,6 +177,8 @@ services:
     depends_on:
       ollama:
         condition: service_healthy
+      ollama-seeder:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:4000/health"]
       interval: 30s
