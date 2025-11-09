@@ -26,6 +26,7 @@ describe("streamingStore", () => {
       responseId: null,
       conversationStatus: "CREATED",
       completionReason: null,
+      statusUpdates: [],
       streamingOutputs: {},
     });
 
@@ -76,6 +77,7 @@ describe("streamingStore", () => {
       expect(state.conversationStatus).toBe("CREATED");
       expect(state.completionReason).toBeNull();
       expect(state.streamingOutputs).toEqual({});
+      expect(state.statusUpdates).toEqual([]);
     });
   });
 
@@ -88,6 +90,14 @@ describe("streamingStore", () => {
         responseId: "test-id",
         conversationStatus: "STREAMING",
         completionReason: "test",
+        statusUpdates: [
+          {
+            id: "status-1",
+            label: "Existing",
+            severity: "info",
+            timestamp: Date.now(),
+          },
+        ],
         streamingOutputs: { 0: { messageId: "msg-1", itemId: "item-1" } },
       });
 
@@ -102,6 +112,7 @@ describe("streamingStore", () => {
       expect(state.conversationStatus).toBe("CREATED");
       expect(state.completionReason).toBeNull();
       expect(state.streamingOutputs).toEqual({});
+      expect(state.statusUpdates).toEqual([]);
     });
   });
 
@@ -473,6 +484,25 @@ describe("streamingStore", () => {
       expect(state.conversationStatus).toBe("FAILED");
       expect(state.streamError).toBe("Critical failure");
     });
+
+    it("should record status updates for lifecycle events", async () => {
+      await useStreamingStore.getState().sendMessage("Test");
+
+      onMessage({
+        event: "conversation.ready",
+        data: JSON.stringify({ conversation_id: 999 }),
+      });
+
+      onMessage({
+        event: "response.completed",
+        data: JSON.stringify({ response: { id: "resp-xyz" } }),
+      });
+
+      const updates = useStreamingStore.getState().statusUpdates;
+      const labels = updates.map((u) => u.label);
+      expect(labels).toContain("Conversation ready");
+      expect(labels).toContain("Response completed");
+    });
   });
 
   describe("SSE Event Handlers - Text/Message", () => {
@@ -538,6 +568,36 @@ describe("streamingStore", () => {
       const messages = useMessageStore.getState().messages;
       const assistantMsg = messages.find(m => m.role === "assistant");
       expect(assistantMsg?.content).toBe("Hello world");
+    });
+
+    it("should fall back to payload type when event name missing", () => {
+      onMessage({
+        event: "",
+        data: JSON.stringify({
+          type: "response.output_text.delta",
+          output_index: 0,
+          delta: "Fallback event handling",
+          item_id: "item-2",
+        }),
+      });
+
+      const messages = useMessageStore.getState().messages;
+      const assistantMsg = messages.find(m => m.role === "assistant");
+      expect(assistantMsg?.content).toBe("Fallback event handling");
+    });
+
+    it("should ignore DONE sentinels", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const initialStatus = useStreamingStore.getState().conversationStatus;
+
+      onMessage({
+        event: "",
+        data: "[DONE]",
+      });
+
+      expect(useStreamingStore.getState().conversationStatus).toBe(initialStatus);
+      expect(warnSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
     });
 
     it("should handle response.output_text.done event", () => {
@@ -735,6 +795,20 @@ describe("streamingStore", () => {
       expect(pending?.approvalRequestId).toBe("approval-123");
       expect(pending?.serverLabel).toBe("test-server");
       expect(pending?.toolName).toBe("test-tool");
+    });
+
+    it("should create status update for approval requests", () => {
+      onMessage({
+        event: "response.mcp_approval_request",
+        data: JSON.stringify({
+          approval_request_id: "approval-999",
+          server_label: "n8n",
+          tool_name: "calendar.lookup",
+        }),
+      });
+
+      const updates = useStreamingStore.getState().statusUpdates;
+      expect(updates.at(-1)?.label).toBe("Tool approval required");
     });
 
     it("should handle response.output_item.done", () => {

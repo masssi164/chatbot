@@ -256,17 +256,17 @@ The application uses LiteLLM as a gateway to various LLM providers.
 #### Option A: Use Local Ollama Models
 
 ```bash
-# Install a model (llama3.2 recommended)
+# Install CPU-friendly models (llama3.2:1b recommended)
 ./gradlew ollamaInstallModels
 
 # Or manually:
-docker exec ollama ollama pull llama3.2
+docker exec ollama ollama pull llama3.2:1b
 ```
 
 Models are already configured in `config/litellm.config.yaml`:
-- llama3.2 (recommended, 3B params)
-- mistral (7B params)
-- qwen2.5 (7B params)
+- llama3.2:1b (recommended, 1B params)
+- phi3.5:3.8b (balanced, 3.8B params)
+- qwen2.5:1.5b (fast, 1.5B params)
 
 #### Option B: Use OpenAI API
 

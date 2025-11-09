@@ -123,7 +123,7 @@ task developmentUp {
         
         // Step 3: Install Ollama models
         println "\n[3/4] Installing Ollama models (this may take a while)..."
-        def models = ['llama3.2', 'mistral']  // Reduced set for faster startup
+        def models = ['llama3.2:1b', 'phi3.5:3.8b', 'qwen2.5:1.5b']  // CPU-friendly defaults
         models.each { model ->
             println "  - Installing model: ${model}"
             try {
@@ -239,10 +239,10 @@ task rebuild {
 // Ollama Model Management Tasks
 task ollamaInstallModels {
     group = 'ollama'
-    description = 'Installs common Ollama models (llama3.2, mistral, qwen2.5)'
+    description = 'Installs common CPU-friendly Ollama models (llama3.2:1b, phi3.5:3.8b, qwen2.5:1.5b)'
 
     doLast {
-        def models = ['llama3.2', 'mistral', 'qwen2.5']
+        def models = ['llama3.2:1b', 'phi3.5:3.8b', 'qwen2.5:1.5b']
         models.each { model ->
             println "Installing Ollama model: ${model}"
             try {

@@ -64,15 +64,15 @@ describe('configStore', () => {
 
   it('should fetch models successfully', async () => {
     const fetchModelsMock = apiClient.fetchModels as ReturnType<typeof vi.fn>;
-    fetchModelsMock.mockResolvedValue(["llama3.2", "mistral"]);
+    fetchModelsMock.mockResolvedValue(["llama3.2:1b", "phi3.5:3.8b"]);
 
     await useConfigStore.getState().fetchModels();
     const models = useConfigStore.getState().availableModels;
     
     expect(models).toBeInstanceOf(Array);
     expect(models.length).toBeGreaterThan(0);
-    expect(models).toContain('llama3.2');
-    expect(useConfigStore.getState().model).toBe('llama3.2');
+    expect(models).toContain('llama3.2:1b');
+    expect(useConfigStore.getState().model).toBe('llama3.2:1b');
   });
 
   it('should set topP', () => {

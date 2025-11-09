@@ -6,6 +6,16 @@ import { useToolCallStore, type ToolCallState, type ApprovalRequest } from "./to
 import { useConversationStore } from "./conversationStore";
 import { useConfigStore } from "./configStore";
 
+export type StatusSeverity = "info" | "success" | "warning" | "error";
+
+export interface StatusUpdate {
+  id: string;
+  label: string;
+  detail?: string | null;
+  severity: StatusSeverity;
+  timestamp: number;
+}
+
 /**
  * Streaming Store for managing SSE streaming and response lifecycle
  * Extracted from chatStore for better maintainability
@@ -19,6 +29,7 @@ export interface StreamingState {
   responseId?: string | null;
   conversationStatus: ConversationStatus;
   completionReason?: string | null;
+  statusUpdates: StatusUpdate[];
   
   // Private streaming state
   streamingOutputs: Record<number, { messageId: string; itemId?: string | null }>;
@@ -78,6 +89,7 @@ export const useStreamingStore = create<StreamingState>((set, get) => ({
   responseId: null,
   conversationStatus: "CREATED",
   completionReason: null,
+  statusUpdates: [],
   streamingOutputs: {},
 
   sendMessage: async (content: string) => {
@@ -160,7 +172,7 @@ export const useStreamingStore = create<StreamingState>((set, get) => ({
         },
         onmessage(event) {
           console.log("Stream message received:", event.event, event.data);
-          handleStreamEvent(event.event ?? "message", event.data);
+          handleStreamEvent(event.event, event.data);
         },
         onerror(err) {
           console.error("Stream error:", err);
@@ -241,7 +253,7 @@ export const useStreamingStore = create<StreamingState>((set, get) => ({
           }
         },
         onmessage(event) {
-          handleStreamEvent(event.event ?? "message", event.data);
+          handleStreamEvent(event.event, event.data);
         },
         onerror(err) {
           console.error("Approval response stream error:", err);
@@ -267,37 +279,61 @@ export const useStreamingStore = create<StreamingState>((set, get) => ({
       responseId: null,
       conversationStatus: "CREATED",
       completionReason: null,
+      statusUpdates: [],
     });
   },
 }));
+
+const STATUS_UPDATE_LIMIT = 20;
+
+function addStatusUpdate(label: string, severity: StatusSeverity = "info", detail?: string | null) {
+  const state = useStreamingStore.getState();
+  const update: StatusUpdate = {
+    id: createId(),
+    label,
+    detail: detail ?? null,
+    severity,
+    timestamp: Date.now(),
+  };
+  const next = [...state.statusUpdates, update];
+  useStreamingStore.setState({
+    statusUpdates: next.length > STATUS_UPDATE_LIMIT ? next.slice(-STATUS_UPDATE_LIMIT) : next,
+  });
+}
 
 // ============================================
 // SSE Event Handlers
 // ============================================
 
-function handleStreamEvent(eventName: string, payload: string) {
-  if (eventName === "conversation.ready") {
-    try {
-      const node = JSON.parse(payload);
-      const conversationStore = useConversationStore.getState();
-      conversationStore.setCurrentConversation(
-        node.conversation_id ?? node.id ?? null,
-        node.title ?? null
-      );
-    } catch (error) {
-      console.warn("Failed to parse conversation.ready payload", error);
-    }
+function handleStreamEvent(rawEventName: string | undefined | null, payload: string | undefined) {
+  if (!payload) {
     return;
   }
 
-  let data: any = null;
-  if (payload) {
-    try {
-      data = JSON.parse(payload);
-    } catch (error) {
-      console.warn(`Failed to parse event payload for ${eventName}`, error);
-      return;
-    }
+  const trimmedPayload = payload.trim();
+  if (!trimmedPayload || trimmedPayload === "[DONE]") {
+    return;
+  }
+
+  let data: any;
+  try {
+    data = JSON.parse(trimmedPayload);
+  } catch (error) {
+    const label = rawEventName && rawEventName.trim().length > 0 ? rawEventName : "message";
+    console.warn(`Failed to parse event payload for ${label}`, error);
+    return;
+  }
+
+  const eventName = normalizeEventName(rawEventName, data?.type);
+
+  if (eventName === "conversation.ready") {
+    const conversationStore = useConversationStore.getState();
+    conversationStore.setCurrentConversation(
+      data?.conversation_id ?? data?.id ?? null,
+      data?.title ?? null
+    );
+    addStatusUpdate("Conversation ready", "success");
+    return;
   }
 
   switch (eventName) {
@@ -370,6 +406,22 @@ function handleStreamEvent(eventName: string, payload: string) {
   }
 }
 
+function normalizeEventName(rawEventName?: string | null, fallbackType?: unknown): string {
+  const trimmed = rawEventName?.trim();
+  if (trimmed) {
+    return trimmed;
+  }
+
+  if (typeof fallbackType === "string") {
+    const fallback = fallbackType.trim();
+    if (fallback.length > 0) {
+      return fallback;
+    }
+  }
+
+  return "message";
+}
+
 // ============================================
 // Lifecycle Event Handlers
 // ============================================
@@ -381,6 +433,7 @@ function handleResponseCreated(data: any) {
 
   const responseId = data.response.id;
   console.log("✅ Response created:", responseId);
+  addStatusUpdate("Assistant is formulating a response", "info");
 
   useStreamingStore.setState({
     responseId,
@@ -396,6 +449,7 @@ function handleResponseCompleted(data: any) {
 
   const responseId = data.response.id;
   console.log("✅ Response completed:", responseId);
+  addStatusUpdate("Response completed", "success");
 
   useStreamingStore.setState({
     isStreaming: false,
@@ -413,6 +467,7 @@ function handleResponseIncomplete(data: any) {
 
   const reason = data.response.status_details?.reason || "length";
   console.warn("⚠️ Response incomplete:", reason);
+  addStatusUpdate("Response incomplete", "warning", reason);
 
   useStreamingStore.setState({
     isStreaming: false,
@@ -433,6 +488,7 @@ function handleResponseFailed(data: any) {
   const errorMessage = error.message || "Response failed";
 
   console.error("❌ Response failed:", errorCode, errorMessage);
+  addStatusUpdate("Response failed", "error", `${errorCode}: ${errorMessage}`);
 
   useStreamingStore.setState({
     isStreaming: false,
@@ -454,11 +510,13 @@ function handleResponseError(data: any) {
 
   if (code === "rate_limit_exceeded") {
     console.warn("⚠️ Rate limit exceeded:", message);
+    addStatusUpdate("Rate limit encountered", "warning", message);
     useStreamingStore.setState({
       streamError: `Rate limit: ${message}`,
     });
   } else {
     console.error("❌ Response error:", code, message);
+    addStatusUpdate("Response error", "error", message);
     useStreamingStore.setState({
       streamError: message,
     });
@@ -475,6 +533,7 @@ function handleCriticalError(data: any) {
   const message = error.message || "Critical error";
 
   console.error("❌ CRITICAL ERROR:", code, message);
+  addStatusUpdate("Critical error", "error", message);
 
   useStreamingStore.setState({
     isStreaming: false,
@@ -565,6 +624,10 @@ function handleTextDone(data: any) {
       itemId: itemId ?? undefined,
       outputIndex,
     });
+  }
+
+  if (text) {
+    addStatusUpdate("Assistant response finalized", "info");
   }
 
   useStreamingStore.setState({ streamingOutputs: mapping });
@@ -724,6 +787,14 @@ function updateToolCallStatus(
       updatedAt: Date.now(),
     } as ToolCallState);
   }
+
+  if (status === "in_progress") {
+    addStatusUpdate("Tool call started", "info", data?.tool_name ?? itemId);
+  } else if (status === "completed") {
+    addStatusUpdate("Tool call completed", "success", data?.tool_name ?? itemId);
+  } else if (status === "failed") {
+    addStatusUpdate("Tool call failed", "error", error ?? data?.tool_name ?? itemId);
+  }
 }
 
 function handleMcpApprovalRequest(data: any) {
@@ -740,4 +811,5 @@ function handleMcpApprovalRequest(data: any) {
   
   const toolCallStore = useToolCallStore.getState();
   toolCallStore.setPendingApproval(approvalRequest);
+  addStatusUpdate("Tool approval required", "warning", approvalRequest.toolName || approvalRequest.serverLabel);
 }

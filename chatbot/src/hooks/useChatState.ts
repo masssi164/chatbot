@@ -30,6 +30,7 @@ export function useChatState() {
     responseId: useStreamingStore((state) => state.responseId),
     conversationStatus: useStreamingStore((state) => state.conversationStatus),
     completionReason: useStreamingStore((state) => state.completionReason),
+    statusUpdates: useStreamingStore((state) => state.statusUpdates),
     
     // Model configuration (from configStore)
     model: useConfigStore((state) => state.model),

@@ -11,6 +11,7 @@ import { UserApprovalDialog } from "./components/UserApprovalDialog";
 import { useChatActions, useChatState } from "./hooks/useChatState";
 import { useMcpActions, useMcpState } from "./hooks/useMcpState";
 import type { ConversationStatus } from "./services/apiClient";
+import { ResponseStatusPanel } from "./components/ResponseStatusPanel";
 
 /**
  * Get user-friendly label for conversation status (matches backend ConversationStatus enum)
@@ -228,6 +229,10 @@ function App() {
 
       <main className="chat-main">
         <section className="chat-transcript" aria-live="polite">
+          <ResponseStatusPanel
+            updates={chatState.statusUpdates}
+            isStreaming={chatState.isStreaming}
+          />
           <ChatHistory 
             messages={chatState.messages} 
             toolCalls={chatState.toolCalls}
