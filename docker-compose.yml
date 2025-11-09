@@ -166,14 +166,15 @@ services:
       # Admin UI credentials (optional but recommended)
       - UI_USERNAME=${LITELLM_UI_USERNAME:-admin}
       - UI_PASSWORD=${LITELLM_UI_PASSWORD:-admin}
-      # Master key for API access
-      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-local-master}
+      # Shared master/API key (matches backend OPENAI_API_KEY)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-sk-local-master}
       # Logging
       - JSON_LOGS=True
       - OLLAMA_API_BASE=http://ollama:11434
     volumes:
       - ./config/litellm.config.yaml:/app/config.yaml:ro
-    command: ["--config", "/app/config.yaml", "--detailed_debug"]
+      - ./docker/litellm-entrypoint.sh:/entrypoint-litellm.sh:ro
+    entrypoint: ["/entrypoint-litellm.sh"]
     depends_on:
       ollama:
         condition: service_healthy

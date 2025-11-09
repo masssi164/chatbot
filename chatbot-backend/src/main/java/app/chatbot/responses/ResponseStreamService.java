@@ -111,13 +111,10 @@ public class ResponseStreamService {
                             .contentType(MediaType.APPLICATION_JSON)
                             .accept(MediaType.TEXT_EVENT_STREAM);
 
-                    WebClient.RequestHeadersSpec<?> headersSpec = spec.body(BodyInserters.fromValue(mutablePayload));
-
-                    if (StringUtils.hasText(authorizationHeader)) {
-                        headersSpec = headersSpec.header(HttpHeaders.AUTHORIZATION, authorizationHeader.trim());
-                    } else if (StringUtils.hasText(properties.getApiKey())) {
-                        headersSpec = headersSpec.header(HttpHeaders.AUTHORIZATION, "Bearer " + properties.getApiKey().trim());
-                    }
+                    WebClient.RequestHeadersSpec<?> headersSpec = applyAuthorizationHeader(
+                            spec.body(BodyInserters.fromValue(mutablePayload)),
+                            authorizationHeader
+                    );
 
                     Flux<ServerSentEvent<String>> upstream = headersSpec.exchangeToFlux(response -> {
                                 if (response.statusCode().is2xxSuccessful()) {
@@ -179,7 +176,16 @@ public class ResponseStreamService {
             String approvalRequestId,
             boolean approve,
             String reason) {
-        
+        return sendApprovalResponse(conversationId, approvalRequestId, approve, reason, null);
+    }
+
+    public Flux<ServerSentEvent<String>> sendApprovalResponse(
+            Long conversationId,
+            String approvalRequestId,
+            boolean approve,
+            String reason,
+            String authorizationHeader) {
+
         return conversationService.ensureConversation(conversationId, null)
             .flatMapMany(conversation -> {
                 String previousResponseId = conversation.getResponseId();
@@ -213,10 +219,17 @@ public class ResponseStreamService {
                 StreamState state = new StreamState(conversationId);
                 
                 // Send request to OpenAI
-                return webClient.post()
+                WebClient.RequestBodySpec requestSpec = webClient.post()
                     .uri("/responses")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .bodyValue(payload)
+                    .accept(MediaType.TEXT_EVENT_STREAM);
+
+                WebClient.RequestHeadersSpec<?> headersSpec = applyAuthorizationHeader(
+                        requestSpec.bodyValue(payload),
+                        authorizationHeader
+                );
+
+                return headersSpec
                     .retrieve()
                     .bodyToFlux(SSE_TYPE)
                     .flatMap(sseEvent -> handleEvent(sseEvent, state)
@@ -248,6 +261,23 @@ public class ResponseStreamService {
                 toolsArray.add(toolNode);
             }
         }
+    }
+
+    private WebClient.RequestHeadersSpec<?> applyAuthorizationHeader(
+            WebClient.RequestHeadersSpec<?> headersSpec,
+            String authorizationHeader) {
+
+        if (StringUtils.hasText(authorizationHeader)) {
+            return headersSpec.headers(httpHeaders ->
+                    httpHeaders.set(HttpHeaders.AUTHORIZATION, authorizationHeader.trim()));
+        }
+
+        if (StringUtils.hasText(properties.getApiKey())) {
+            return headersSpec.headers(httpHeaders ->
+                    httpHeaders.set(HttpHeaders.AUTHORIZATION, "Bearer " + properties.getApiKey().trim()));
+        }
+
+        return headersSpec;
     }
 
     private ServerSentEvent<String> cloneEvent(ServerSentEvent<String> original) {

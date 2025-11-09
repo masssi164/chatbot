@@ -724,6 +724,7 @@ class ResponseStreamServiceTest {
 
         OpenAiProperties properties = new OpenAiProperties();
         properties.setBaseUrl("http://localhost:1234/v1");
+        properties.setApiKey("sk-test-default");
 
         ResponseStreamService approvalService = new ResponseStreamService(
                 approvalClient, properties, conversationService, toolDefinitionProvider, objectMapper);
@@ -733,7 +734,63 @@ class ResponseStreamServiceTest {
                 .thenConsumeWhile(event -> true)
                 .verifyComplete();
 
+        assertThat(approvalRequest.get().headers().getFirst(HttpHeaders.AUTHORIZATION))
+                .isEqualTo("Bearer sk-test-default");
         verify(conversationService).ensureConversation(17L, null);
+    }
+
+    @Test
+    void shouldSendApprovalResponseWithCustomAuthHeader() {
+        Conversation conversation = Conversation.builder()
+                .id(21L)
+                .responseId("resp-custom")
+                .build();
+
+        given(conversationService.ensureConversation(21L, null))
+                .willReturn(Mono.just(conversation));
+        given(conversationService.updateConversationResponseId(any(), any()))
+                .willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+        given(conversationService.finalizeConversation(any(), any(), any(), any()))
+                .willReturn(Mono.just(conversation));
+
+        ObjectNode responseCreated = objectMapper.createObjectNode();
+        responseCreated.put("id", "resp-custom-approval");
+
+        String approvalPayload = new StringBuilder()
+                .append(encodeEvent("response.created", responseCreated))
+                .append(encodeEvent("response.completed", objectMapper.createObjectNode()))
+                .toString();
+
+        AtomicReference<ClientRequest> approvalRequest = new AtomicReference<>();
+        WebClient approvalClient = WebClient.builder()
+                .exchangeFunction(request -> {
+                    approvalRequest.set(request);
+                    DataBuffer buffer = new DefaultDataBufferFactory().wrap(approvalPayload.getBytes(StandardCharsets.UTF_8));
+                    ClientResponse response = ClientResponse.create(HttpStatus.OK)
+                            .header(HttpHeaders.CONTENT_TYPE, MediaType.TEXT_EVENT_STREAM_VALUE)
+                            .body(Flux.just(buffer))
+                            .build();
+                    return Mono.just(response);
+                })
+                .build();
+
+        OpenAiProperties properties = new OpenAiProperties();
+        properties.setBaseUrl("http://localhost:1234/v1");
+        properties.setApiKey("sk-default");
+
+        ResponseStreamService approvalService = new ResponseStreamService(
+                approvalClient, properties, conversationService, toolDefinitionProvider, objectMapper);
+
+        StepVerifier.create(approvalService.sendApprovalResponse(
+                        21L, "apreq-custom", true, "User approved", "Bearer custom-token"))
+                .expectNextMatches(event -> "response.created".equals(event.event()))
+                .thenConsumeWhile(event -> true)
+                .verifyComplete();
+
+        assertThat(approvalRequest.get().headers().getFirst(HttpHeaders.AUTHORIZATION))
+                .isEqualTo("Bearer custom-token");
     }
 
     @Test

@@ -1,9 +1,17 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { useConfigStore } from './configStore';
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { useConfigStore } from "./configStore";
+import { apiClient } from "../services/apiClient";
+
+vi.mock("../services/apiClient", () => ({
+  apiClient: {
+    fetchModels: vi.fn(),
+  },
+}));
 
 describe('configStore', () => {
   beforeEach(() => {
     // Reset store state before each test
+    vi.clearAllMocks();
     useConfigStore.setState({
       model: 'gpt-4o',
       temperature: 0.7,
@@ -12,6 +20,7 @@ describe('configStore', () => {
       presencePenalty: undefined,
       frequencyPenalty: undefined,
       systemPrompt: undefined,
+      availableModels: [],
     });
   });
 
@@ -20,7 +29,7 @@ describe('configStore', () => {
     expect(state.model).toBe('gpt-4o');
     expect(state.temperature).toBe(0.7);
     expect(state.maxTokens).toBe(2000);
-    expect(state.availableModels).toContain('gpt-4o');
+    expect(state.availableModels).toEqual([]);
   });
 
   it('should set model', () => {
@@ -54,12 +63,16 @@ describe('configStore', () => {
   });
 
   it('should fetch models successfully', async () => {
+    const fetchModelsMock = apiClient.fetchModels as ReturnType<typeof vi.fn>;
+    fetchModelsMock.mockResolvedValue(["llama3.2", "mistral"]);
+
     await useConfigStore.getState().fetchModels();
     const models = useConfigStore.getState().availableModels;
     
     expect(models).toBeInstanceOf(Array);
     expect(models.length).toBeGreaterThan(0);
-    expect(models).toContain('gpt-4o');
+    expect(models).toContain('llama3.2');
+    expect(useConfigStore.getState().model).toBe('llama3.2');
   });
 
   it('should set topP', () => {

@@ -32,7 +32,8 @@ router_settings:
   
 # General proxy settings
 general_settings:
-  master_key: ${LITELLM_MASTER_KEY:-sk-local-master}
+  # Share master key with backend OPENAI_API_KEY to avoid LiteLLM DB lookup errors
+  master_key: ${OPENAI_API_KEY:-sk-local-master}
   alerting: []
   
 # Environment variables

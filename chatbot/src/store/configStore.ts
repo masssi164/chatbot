@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { apiClient } from "../services/apiClient";
 
 /**
  * Configuration type for LLM model settings (data only, no actions)
@@ -42,7 +43,7 @@ export interface ConfigState {
 
 export const useConfigStore = create<ConfigState>((set) => ({
   model: "gpt-4o",
-  availableModels: ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"],
+  availableModels: [],
   temperature: 0.7,
   maxTokens: 2000,
   topP: undefined,
@@ -52,9 +53,23 @@ export const useConfigStore = create<ConfigState>((set) => ({
 
   fetchModels: async () => {
     try {
-      // In a real implementation, this would fetch from the API
-      // For now, we use a static list
-      set({ availableModels: ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"] });
+      const models = await apiClient.fetchModels();
+      if (!Array.isArray(models) || models.length === 0) {
+        set({ availableModels: [] });
+        return;
+      }
+
+      set((state) => {
+        const current = state.model;
+        const nextModel = current && models.includes(current)
+          ? current
+          : models[0];
+
+        return {
+          availableModels: models,
+          model: nextModel ?? current,
+        };
+      });
     } catch (error) {
       console.error("Failed to fetch models:", error);
     }

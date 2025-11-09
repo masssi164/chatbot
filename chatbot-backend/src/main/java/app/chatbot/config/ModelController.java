@@ -2,6 +2,8 @@ package app.chatbot.config;
 
 import java.util.List;
 
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -30,9 +32,16 @@ public class ModelController {
     @GetMapping
     public Mono<List<String>> listModels() {
         log.info("Fetching models from LLM Studio at: {}", properties.getBaseUrl() + "/models");
-        return webClient.get()
-                .uri(properties.getBaseUrl() + "/models")
-                .accept(MediaType.APPLICATION_JSON)
+
+        WebClient.RequestHeadersSpec<?> request = webClient.get()
+                .uri("/models")
+                .accept(MediaType.APPLICATION_JSON);
+
+        if (properties.getApiKey() != null && !properties.getApiKey().isBlank()) {
+            request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + properties.getApiKey().trim());
+        }
+
+        return request
                 .retrieve()
                 .bodyToMono(JsonNode.class)
                 .map(response -> {
