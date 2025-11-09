@@ -19,6 +19,10 @@ services:
     healthcheck:
       start_period: 30s  # Faster startup in dev mode
 
+  n8n:
+    environment:
+      N8N_SECURE_COOKIE: ${N8N_SECURE_COOKIE:-false}
+
   # Override to not depend on backend in dev mode
   chatbot-frontend:
     environment:

@@ -182,6 +182,11 @@ function SettingsPanel({
             <ul className="connector-list">
               {servers.map((server) => {
                 const isActive = server.id === activeServerId;
+                const isCapabilitiesLoading =
+                  server.syncStatus === "SYNCING" ||
+                  (isActive &&
+                    server.status === "connected" &&
+                    !server.capabilities);
                 return (
                   <li
                     key={server.id}
@@ -216,7 +221,7 @@ function SettingsPanel({
                       <div className="connector-capabilities">
                         <McpCapabilitiesPanel
                           capabilities={server.capabilities ?? null}
-                          isLoading={server.syncStatus === "SYNCING"}
+                          isLoading={isCapabilitiesLoading}
                           serverName={server.name}
                           serverId={server.id}
                         />

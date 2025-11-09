@@ -42,6 +42,7 @@ function App() {
   // MCP state and actions (grouped via custom hooks)
   const mcpState = useMcpState();
   const mcpActions = useMcpActions();
+  const loadCapabilities = mcpActions.loadCapabilities;
 
   const [prompt, setPrompt] = useState("");
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -67,6 +68,23 @@ function App() {
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatState.messages]);
+
+  useEffect(() => {
+    if (!mcpState.activeServerId) {
+      return;
+    }
+    const activeServer = mcpState.servers.find(
+      (server) => server.id === mcpState.activeServerId,
+    );
+    if (
+      !activeServer ||
+      activeServer.status !== "connected" ||
+      activeServer.capabilities
+    ) {
+      return;
+    }
+    void loadCapabilities(activeServer.id);
+  }, [mcpState.activeServerId, mcpState.servers, loadCapabilities]);
 
   const handleNewChat = useCallback(async () => {
     chatActions.reset();

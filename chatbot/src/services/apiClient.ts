@@ -255,7 +255,8 @@ export const apiClient = {
   },
 
   getMcpCapabilities(serverId: string): Promise<McpCapabilities> {
-    return request<McpCapabilities>(`/mcp-servers/${serverId}/capabilities`);
+    // Capabilities and tool operations live under /api/mcp/*
+    return request<McpCapabilities>(`/mcp/servers/${serverId}/capabilities`);
   },
 
   // Tool Approval Policies
