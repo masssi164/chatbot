@@ -99,12 +99,13 @@ DB_NAME=chatbot_db
 DB_USER=chatbot_user
 DB_PASSWORD=<STRONG_PASSWORD_HERE>
 
-# OpenAI / LiteLLM
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_API_KEY=sk-<YOUR_OPENAI_KEY>
+# OpenAI / LocalAGI
+OPENAI_BASE_URL=http://localagi:8080/v1
+OPENAI_API_KEY=sk-local-master
+LOCALAI_SEED_MODELS=huggingface://TheBloke/Llama-3.2-1B-Instruct-GGUF/llama-3.2-1b-instruct-q4_k_m.gguf
 
-# Or use local Ollama:
-# OPENAI_BASE_URL=http://litellm:4000
+# Or use the public OpenAI endpoint:
+# OPENAI_BASE_URL=https://api.openai.com/v1
 
 # n8n
 N8N_HOST=n8n

@@ -5,7 +5,7 @@
 This backend is a **fully reactive Spring Boot application** that handles:
 - Chat conversations with streaming responses
 - MCP (Model Context Protocol) integration for dynamic tool execution
-- OpenAI API integration via LiteLLM proxy
+- OpenAI Responses integration via LocalAGI gateway
 - Tool approval workflow
 - Database operations with R2DBC (reactive JDBC)
 
@@ -485,7 +485,7 @@ MCP Server (e.g., n8n, custom tools)
 #### `OpenAiProperties.java`
 - **Configuration**: OpenAI API settings
 - **Properties**:
-  - `baseUrl`: LiteLLM proxy URL (default: http://localhost:4000)
+  - `baseUrl`: LocalAGI gateway URL (default: http://localhost:8083/v1)
   - `apiKey`: OpenAI API key (from env)
   - `timeout`: Request timeout (default: 30s)
 

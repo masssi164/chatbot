@@ -77,37 +77,38 @@ composeBuild.dependsOn ensureEnvFile
 // Development mode - starts infrastructure in Docker, apps locally
 task developmentUp {
     group = 'application'
-    description = 'Starts infrastructure (ollama, litellm, n8n, postgres-n8n) in Docker for local development'
-    
+    description = 'Starts infrastructure (localai, localagi, n8n, postgres-n8n) in Docker for local development'
+
     dependsOn ensureEnvFile
-    
+
     doLast {
         println "=== Starting Development Environment ==="
-        
-        // Step 1: Start infrastructure services with Docker Compose (no health check wait)
-        println "\n[1/4] Starting infrastructure services (ollama, litellm, n8n, postgres-n8n)..."
+
+        def localAiPort = System.getenv('LOCALAI_PORT') ?: '8082'
+        def localAgiPort = System.getenv('LOCALAGI_PORT') ?: '8083'
+
+        // Step 1: Start database, n8n, and LocalAI runtime
+        println "\n[1/4] Starting infrastructure services (localai, n8n, postgres-n8n)..."
         project.exec {
-            commandLine 'docker', 'compose', 'up', '-d', '--no-recreate', 'postgres-n8n', 'n8n', 'ollama', 'litellm'
+            commandLine 'docker', 'compose', 'up', '-d', '--no-recreate', 'postgres-n8n', 'n8n', 'localai'
             ignoreExitValue = true
         }
-        
-        // Step 2: Wait for ollama to be ready
-        // Note: We use curl here (not 'ollama list') because we're checking from the host,
-        // and curl is available on most development machines
-        println "\n[2/4] Waiting for Ollama to be ready..."
-        def ollamaReady = false
+
+        // Step 2: Wait for LocalAI to be healthy
+        println "\n[2/4] Waiting for LocalAI to be ready on port ${localAiPort}..."
+        def localAiReady = false
         def maxAttempts = 60
         def attempt = 0
-        while (!ollamaReady && attempt < maxAttempts) {
+        while (!localAiReady && attempt < maxAttempts) {
             try {
                 project.exec {
-                    commandLine 'curl', '-fsS', 'http://localhost:11434/api/tags'
+                    commandLine 'curl', '-fsS', "http://localhost:${localAiPort}/readyz"
                     ignoreExitValue = false
                     errorOutput = new ByteArrayOutputStream()
                     standardOutput = new ByteArrayOutputStream()
                 }
-                ollamaReady = true
-                println "  ✓ Ollama is ready"
+                localAiReady = true
+                println "  ✓ LocalAI is ready"
             } catch (Exception e) {
                 attempt++
                 if (attempt < maxAttempts) {
@@ -116,57 +117,67 @@ task developmentUp {
                 }
             }
         }
-        
-        if (!ollamaReady) {
-            println "\n  Warning: Ollama did not become ready in time. You may need to wait longer or check logs."
+
+        if (!localAiReady) {
+            println "\n  Warning: LocalAI did not become ready in time. You may need to wait longer or check logs."
         }
-        
-        // Step 3: Install Ollama models
-        println "\n[3/4] Installing Ollama models (this may take a while)..."
-        def models = ['llama3.2:1b', 'phi3.5:3.8b', 'qwen2.5:1.5b']  // CPU-friendly defaults
-        models.each { model ->
-            println "  - Installing model: ${model}"
-            try {
-                project.exec {
-                    commandLine 'docker', 'compose', 'exec', '-T', 'ollama', 'ollama', 'pull', model
-                    ignoreExitValue = true
-                }
-                println "    ✓ ${model} installed"
-            } catch (Exception e) {
-                println "    Warning: Failed to install model ${model}: ${e.message}"
+
+        // Step 3: Seed LocalAI models
+        println "\n[3/4] Seeding LocalAI models via localai-seeder..."
+        try {
+            project.exec {
+                commandLine 'docker', 'compose', 'run', '--rm', 'localai-seeder'
+                ignoreExitValue = false
             }
+            println "  ✓ Model seeding complete"
+        } catch (Exception e) {
+            println "  Warning: Model seeding failed - ${e.message}"
         }
-        
-        println "\n[4/4] Development infrastructure is ready!"
+
+        // Step 4: Start LocalAGI gateway
+        println "\n[4/4] Starting LocalAGI gateway..."
+        project.exec {
+            commandLine 'docker', 'compose', 'up', '-d', '--no-recreate', 'localagi'
+            ignoreExitValue = true
+        }
+
+        // Optional: wait for LocalAGI health
+        println "\nChecking LocalAGI readiness on port ${localAgiPort}..."
+        try {
+            project.exec {
+                commandLine 'curl', '-fsS', "http://localhost:${localAgiPort}/health"
+            }
+            println "  ✓ LocalAGI is reachable"
+        } catch (Exception e) {
+            println "  Warning: LocalAGI health endpoint not reachable yet - ${e.message}"
+        }
+
         println """
 ╔══════════════════════════════════════════════════════════════════╗
 ║                  Development Environment Ready                    ║
 ╠══════════════════════════════════════════════════════════════════╣
 ║ Infrastructure services are running in Docker:                   ║
-║  • Ollama:       http://localhost:11434                          ║
-║  • LiteLLM:      http://localhost:4000                           ║
-║  • n8n:          http://localhost:5678                           ║
-║  • PostgreSQL:   localhost:5432 (for n8n)                        ║
+║  • LocalAI:     http://localhost:${localAiPort}                   ║
+║  • LocalAGI:    http://localhost:${localAgiPort}/v1               ║
+║  • n8n:         http://localhost:5678                            ║
+║  • PostgreSQL:  localhost:5432 (for n8n)                         ║
 ║                                                                   ║
 ║ Next steps to run the applications:                              ║
 ║                                                                   ║
 ║  Terminal 1 - Backend (Spring Boot):                             ║
 ║    ./gradlew :chatbot-backend:bootRun                            ║
-║    Backend will run on http://localhost:8080                     ║
-║    Use SPRING_PROFILES_ACTIVE=dev for H2 in-memory DB            ║
 ║                                                                   ║
 ║  Terminal 2 - Frontend (Vite dev server):                        ║
 ║    cd chatbot && npm run dev                                     ║
-║    Frontend will run on http://localhost:5173                    ║
 ║                                                                   ║
 ║ To stop infrastructure services:                                 ║
 ║    docker compose down                                           ║
 ║                                                                   ║
-║ To check Ollama models:                                          ║
-║    ./gradlew ollamaListModels                                    ║
+║ To list installed models:                                        ║
+║    ./gradlew localAiListModels                                   ║
 ║                                                                   ║
-║ To install additional models:                                    ║
-║    ./gradlew ollamaInstallModels                                 ║
+║ To re-run the seeder manually:                                   ║
+║    ./gradlew localAiInstallModels                                ║
 ╚══════════════════════════════════════════════════════════════════╝
 """
     }
@@ -175,13 +186,13 @@ task developmentUp {
 // External services only (for local development without containers)
 task externalServicesUp {
     group = 'application'
-    description = 'Starts only external services (postgres-*, n8n, ollama, litellm) - for local JVM development'
-    
+    description = 'Starts only external services (postgres-*, n8n, localai, localagi) - for local JVM development'
+
     dependsOn ensureEnvFile
-    
+
     doLast {
         project.exec {
-            commandLine 'docker', 'compose', 'up', '-d', 'postgres-n8n', 'postgres-chatbot', 'n8n', 'ollama', 'litellm'
+            commandLine 'docker', 'compose', 'up', '-d', 'postgres-n8n', 'postgres-chatbot', 'n8n', 'localai', 'localagi'
         }
     }
 }
@@ -236,62 +247,55 @@ task rebuild {
     dependsOn buildAllImages  // Proper dependency instead of finalizedBy
 }
 
-// Ollama Model Management Tasks
-task ollamaInstallModels {
-    group = 'ollama'
-    description = 'Installs common CPU-friendly Ollama models (llama3.2:1b, phi3.5:3.8b, qwen2.5:1.5b)'
+// LocalAI utilities
+task localAiInstallModels {
+    group = 'localai'
+    description = 'Runs the LocalAI seeder (LOCALAI_SEED_MODELS) to install models into the shared volume'
 
     doLast {
-        def models = ['llama3.2:1b', 'phi3.5:3.8b', 'qwen2.5:1.5b']
-        models.each { model ->
-            println "Installing Ollama model: ${model}"
-            try {
-                project.exec {
-                    commandLine 'docker', 'compose', 'exec', 'ollama', 'ollama', 'pull', model
-                }
-            } catch (Exception e) {
-                println "Failed to install model ${model}: ${e.message}"
-            }
+        println "Running localai-seeder..."
+        project.exec {
+            commandLine 'docker', 'compose', 'run', '--rm', 'localai-seeder'
         }
     }
 }
 
-task ollamaListModels {
-    group = 'ollama'
-    description = 'Lists installed Ollama models'
-    
+task localAiListModels {
+    group = 'localai'
+    description = 'Lists installed LocalAI models'
+
     doLast {
         try {
             project.exec {
-                commandLine 'docker', 'compose', 'exec', 'ollama', 'ollama', 'list'
+                commandLine 'docker', 'compose', 'exec', 'localai', 'local-ai', 'models', 'list'
             }
         } catch (Exception e) {
-            println "Failed to list models: ${e.message}"
+            println "Failed to list LocalAI models: ${e.message}"
         }
     }
 }
 
-task ollamaStatus {
-    group = 'ollama'
-    description = 'Shows Ollama and LiteLLM status'
-    
+task localStackStatus {
+    group = 'localai'
+    description = 'Shows LocalAI and LocalAGI status'
+
     doLast {
-        println "=== Ollama Status ==="
+        println "=== LocalAI /readyz ==="
         try {
             project.exec {
-                commandLine 'curl', '-fsS', 'http://localhost:11434/api/tags'
+                commandLine 'curl', '-fsS', 'http://localhost:8082/readyz'
             }
         } catch (Exception e) {
-            println "Ollama not accessible: ${e.message}"
+            println "LocalAI not accessible: ${e.message}"
         }
-        
-        println "\n=== LiteLLM Models ==="
+
+        println "\n=== LocalAGI /v1/models ==="
         try {
             project.exec {
-                commandLine 'curl', '-fsS', '-H', 'Authorization: Bearer sk-local-master', 'http://localhost:4000/v1/models'
+                commandLine 'curl', '-fsS', '-H', 'Authorization: Bearer sk-local-master', 'http://localhost:8083/v1/models'
             }
         } catch (Exception e) {
-            println "LiteLLM not accessible: ${e.message}"
+            println "LocalAGI not accessible: ${e.message}"
         }
     }
 }

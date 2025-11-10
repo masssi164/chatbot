@@ -2,7 +2,7 @@
 
 ## Overview
 
-This package implements the integration with **OpenAI Responses API** (or compatible APIs like LiteLLM) using **Server-Sent Events (SSE)** for real-time streaming of chat responses.
+This package implements the integration with **OpenAI Responses API** (or compatible gateways like LocalAGI) using **Server-Sent Events (SSE)** for real-time streaming of chat responses.
 
 **Key Features**:
 - Real-time message streaming to frontend
@@ -42,7 +42,7 @@ This package implements the integration with **OpenAI Responses API** (or compat
          ▼                 ▼
 ┌──────────────────┐  ┌──────────────────┐
 │  OpenAI API      │  │  McpClientService│
-│  (via LiteLLM)   │  │  (Tool execution)│
+│  (via LocalAGI)  │  │  (Tool execution)│
 └──────────────────┘  └──────────────────┘
 ```
 

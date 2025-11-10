@@ -40,7 +40,7 @@ cd chatbot
 
 ### 2. Start Infrastructure Services
 
-This starts PostgreSQL, n8n, LiteLLM, and Ollama:
+This starts PostgreSQL, n8n, LocalAI, and LocalAGI:
 
 ```bash
 ./gradlew developmentUp
@@ -50,8 +50,8 @@ Wait for all services to be healthy. You should see:
 ```
 ✓ PostgreSQL is ready
 ✓ n8n is ready
-✓ LiteLLM is ready
-✓ Ollama is ready
+✓ LocalAI is ready
+✓ LocalAGI is ready
 ```
 
 ### 3. Run Backend
@@ -111,8 +111,7 @@ chatbot/
 │   ├── Dockerfile
 │   └── build.gradle
 │
-├── config/                    # Shared configuration
-│   └── litellm.config.yaml   # LiteLLM configuration
+├── config/                    # Infra overrides (LocalAI/localagi)
 │
 ├── docs/                      # Documentation
 │   ├── architecture/          # Architecture docs
@@ -251,22 +250,21 @@ VITE_N8N_BASE_URL=http://localhost:5678
 
 ### 2. Configure an LLM Model
 
-The application uses LiteLLM as a gateway to various LLM providers.
+By default the stack runs **LocalAGI** (OpenAI Responses API) backed by **LocalAI** models.
 
-#### Option A: Use Local Ollama Models
+#### Option A: Use LocalAI Models
 
-```bash
-# Install CPU-friendly models (llama3.2:1b recommended)
-./gradlew ollamaInstallModels
-
-# Or manually:
-docker exec ollama ollama pull llama3.2:1b
-```
-
-Models are already configured in `config/litellm.config.yaml`:
-- llama3.2:1b (recommended, 1B params)
-- phi3.5:3.8b (balanced, 3.8B params)
-- qwen2.5:1.5b (fast, 1.5B params)
+1. Set `LOCALAI_SEED_MODELS` in `.env` with one or more GGUF URIs (comma-separated).  
+2. Install models deterministically:
+   ```bash
+   ./gradlew localAiInstallModels
+   ```
+   The Gradle task runs the `localai-seeder` container which executes `local-ai models install ...`.
+3. Verify what is available:
+   ```bash
+   ./gradlew localAiListModels   # wraps `local-ai models list`
+   ```
+4. Update `OPENAI_API_KEY` if you want to change the shared LocalAGI key.
 
 #### Option B: Use OpenAI API
 
@@ -276,7 +274,7 @@ Models are already configured in `config/litellm.config.yaml`:
    OPENAI_BASE_URL=https://api.openai.com/v1
    OPENAI_API_KEY=sk-your-real-api-key
    ```
-3. Restart backend
+3. Restart backend (LocalAGI can proxy remote providers when `OPENAI_BASE_URL` points to them)
 
 ### 3. Add Your First MCP Server
 

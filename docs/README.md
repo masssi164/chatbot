@@ -199,9 +199,9 @@ Complete API documentation for developers.
 
 ### Infrastructure
 - Docker + Docker Compose
-- LiteLLM (LLM gateway)
+- LocalAGI (OpenAI Responses gateway)
+- LocalAI (deterministic local runtime)
 - n8n (workflow automation)
-- Ollama (local LLM runtime)
 
 ### Integrations
 - OpenAI API

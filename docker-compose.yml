@@ -78,8 +78,8 @@ services:
       DB_USER: ${DB_USER:-chatbot_user}
       DB_PASSWORD: ${DB_PASSWORD:-chatbot_password}
       # OpenAI configuration
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-http://localagi:8080/v1}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-sk-local-master}
       # MCP configuration
       MCP_ENCRYPTION_KEY: ${MCP_ENCRYPTION_KEY:-prod-32-character-secret-key-here-change-me}
       # JVM settings
@@ -92,6 +92,8 @@ services:
       retries: 5
     depends_on:
       postgres-chatbot:
+        condition: service_healthy
+      localagi:
         condition: service_healthy
 
   chatbot-frontend:
@@ -115,84 +117,63 @@ services:
       chatbot-backend:
         condition: service_healthy
 
-  # Ollama - Local LLM Server
-  ollama:
-    image: ollama/ollama:latest
+  # LocalAI - deterministic local model runtime
+  localai:
+    image: localai/localai:v3.7.0-aio-cpu
     restart: unless-stopped
     ports:
-      - "${OLLAMA_PORT:-11434}:11434"
+      - "${LOCALAI_PORT:-8082}:8080"
     environment:
-      - OLLAMA_HOST=0.0.0.0:11434
-      - CUDA_VISIBLE_DEVICES=-1   # Force CPU per https://github.com/ollama/ollama/blob/main/docs/gpu.mdx
-      - ROCR_VISIBLE_DEVICES=-1   # Force CPU for AMD layouts
-      # Uncomment for browser CORS access (optional)
-      # - OLLAMA_ORIGINS=*
+      - API_KEY=${LOCALAI_API_KEY:-localai-demo-key}
+      - THREADS=${LOCALAI_THREADS:-4}
+      - MODELS_PATH=/root/.localai/models
     volumes:
-      - ollama_models:/root/.ollama
-    # Uncomment for NVIDIA GPU support
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+      - localai_models:/root/.localai/models
     healthcheck:
-      test: ["CMD-SHELL", "ollama list > /dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL","curl -fsS http://127.0.0.1:8080/readyz || exit 1"]
       interval: 15s
       timeout: 5s
-      retries: 20
-      start_period: 60s
+      retries: 10
+      start_period: 20s
 
-  # Ollama Seeder - Preload required models before LiteLLM starts
-  ollama-seeder:
-    build:
-      context: ./docker/ollama-seeder
+  # LocalAI Seeder - install GGUF models into shared volume
+  localai-seeder:
+    image: localai/localai:v3.7.0-aio-cpu
     restart: "no"
+    entrypoint: ["/bin/sh","/scripts/seeder.sh"]
     environment:
-      OLLAMA_HOST: ${OLLAMA_HOST:-ollama}
-      OLLAMA_PORT: ${OLLAMA_PORT:-11434}
-      OLLAMA_API_BASE: ${OLLAMA_API_BASE:-http://ollama:11434}
-      OLLAMA_SEED_MODELS: "${OLLAMA_SEED_MODELS:-llama3.2:1b,phi3.5:3.8b,qwen2.5:1.5b}"
-      OLLAMA_SEED_TIMEOUT: ${OLLAMA_SEED_TIMEOUT:-600}
+      - LOCALAI_SEED_MODELS=${LOCALAI_SEED_MODELS:-huggingface://TheBloke/Llama-3.2-1B-Instruct-GGUF/llama-3.2-1b-instruct-q4_k_m.gguf}
+    volumes:
+      - ./docker/localai-seeder/seeder.sh:/scripts/seeder.sh:ro
+      - localai_models:/root/.localai/models
     depends_on:
-      ollama:
+      localai:
         condition: service_healthy
 
-  # LiteLLM - OpenAI-compatible API Gateway
-  litellm:
-    image: ghcr.io/berriai/litellm:main-stable
+  # LocalAGI - OpenAI Responses-compatible agent gateway
+  localagi:
+    image: ghcr.io/mudler/localagi:v0.1.0
     restart: unless-stopped
     ports:
-      - "${LITELLM_PORT:-4000}:4000"
+      - "${LOCALAGI_PORT:-8083}:8080"
     environment:
-      # Admin UI credentials (optional but recommended)
-      - UI_USERNAME=${LITELLM_UI_USERNAME:-admin}
-      - UI_PASSWORD=${LITELLM_UI_PASSWORD:-admin}
-      # Shared master/API key (matches backend OPENAI_API_KEY)
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-sk-local-master}
-      # Logging
-      - JSON_LOGS=True
-      - OLLAMA_API_BASE=http://ollama:11434
-    volumes:
-      - ./config/litellm.config.yaml:/app/config.yaml:ro
-      - ./docker/litellm-entrypoint.sh:/entrypoint-litellm.sh:ro
-    entrypoint: ["/entrypoint-litellm.sh"]
+      - API_KEY=${OPENAI_API_KEY:-sk-local-master}
+      - LOCALAI_BACKEND=http://localai:8080
+      - ENABLE_MCP=true
     depends_on:
-      ollama:
+      localai:
         condition: service_healthy
-      ollama-seeder:
+      localai-seeder:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "python", "-c",
-             "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness').getcode()==200 else sys.exit(1)"]
+      test: ["CMD-SHELL","curl -fsS http://127.0.0.1:8080/health || exit 1"]
       interval: 10s
-      timeout: 10s
+      timeout: 5s
       retries: 10
-      start_period: 60s
+      start_period: 30s
 
 volumes:
   n8n_data:
   postgres_n8n_data:
   postgres_chatbot_data:
-  ollama_models:
+  localai_models:

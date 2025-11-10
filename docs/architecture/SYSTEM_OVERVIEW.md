@@ -28,14 +28,14 @@ package "Data Layer" {
 }
 
 package "Integration Layer" {
-  [LiteLLM Gateway] as LiteLLM
+  [LocalAGI Gateway] as LocalAGI
+  [LocalAI Runtime] as LocalAI
   [MCP Server Registry] as MCPRegistry
   [n8n Workflows] as n8n
 }
 
 package "External Services" {
   cloud "OpenAI API" as OpenAI
-  [Ollama (Local LLM)] as Ollama
 }
 
 Frontend --> API : REST/SSE
@@ -46,12 +46,12 @@ API --> Stream : Orchestrate
 API --> Conv : Manage Conversations
 API --> MCPClient : Tool Execution
 
-Stream --> LiteLLM : Stream Requests
+Stream --> LocalAGI : Stream Requests
 MCPClient --> MCPRegistry : Session Management
 MCPRegistry --> n8n : MCP Protocol
 
-LiteLLM --> OpenAI : Remote LLM
-LiteLLM --> Ollama : Local LLM
+LocalAGI --> OpenAI : Remote LLM
+LocalAGI --> LocalAI : Local Models
 
 Conv --> DB : R2DBC (Reactive)
 MCPClient --> DB : Store Tool Calls
@@ -76,9 +76,9 @@ MCPClient --> DB : Store Tool Calls
 
 ### Infrastructure
 - **Containerization**: Docker + Docker Compose
-- **LLM Gateway**: LiteLLM (supports OpenAI, Ollama, etc.)
+- **LLM Gateway**: LocalAGI (OpenAI Responses-compatible)
 - **Automation**: n8n workflow engine
-- **Model Runtime**: Ollama (local LLM execution)
+- **Model Runtime**: LocalAI (deterministic GGUF runtime)
 
 ## Key Features
 
@@ -96,15 +96,15 @@ MCPClient --> DB : Store Tool Calls
 
 component "PostgreSQL" as DB
 component "n8n" as N8N
-component "LiteLLM" as LLM
-component "Ollama" as OLL
+component "LocalAGI" as AGI
+component "LocalAI" as LAI
 component "Backend" as BE
 component "Frontend" as FE
 
 DB -up-> N8N : stores workflows
 N8N -up-> BE : MCP tools
-LLM -up-> BE : LLM API
-OLL -up-> LLM : local models
+AGI -up-> BE : Responses API
+LAI -up-> AGI : local models
 BE -up-> FE : REST/SSE
 
 @enduml
@@ -118,8 +118,8 @@ BE -up-> FE : REST/SSE
 | Backend | 8080 | http://localhost:8080 |
 | Backend Health | 8080 | http://localhost:8080/actuator/health |
 | n8n | 5678 | http://localhost:5678 |
-| LiteLLM | 4000 | http://localhost:4000 |
-| Ollama | 11434 | http://localhost:11434 |
+| LocalAGI | 8083 | http://localhost:8083/v1 |
+| LocalAI | 8082 | http://localhost:8082 |
 | PostgreSQL | 5432 | localhost:5432 |
 
 ## Data Flow Overview
@@ -127,7 +127,7 @@ BE -up-> FE : REST/SSE
 ### Request Flow
 1. User types message in React frontend
 2. Frontend sends POST request to Backend SSE endpoint
-3. Backend streams request to LiteLLM/OpenAI
+3. Backend streams request to LocalAGI/OpenAI
 4. If tool call needed, Backend executes via MCP
 5. Results streamed back to Frontend via SSE
 6. Frontend updates UI in real-time
@@ -274,16 +274,16 @@ mcp_servers ||--o{ tool_approval_policies
 node "Docker Host" {
   component "Frontend\nNginx" as FE
   component "Backend\nSpring Boot" as BE
-  component "LiteLLM" as LLM
+  component "LocalAGI" as AGI
   component "n8n" as N8N
-  component "Ollama" as OLL
+  component "LocalAI" as LAI
   database "PostgreSQL" as DB
   
   FE -down-> BE : port 8080
-  BE -down-> LLM : port 4000
+  BE -down-> AGI : port 8083
   BE -down-> N8N : port 5678
   BE -down-> DB : port 5432
-  LLM -down-> OLL : port 11434
+  AGI -down-> LAI : port 8082
   N8N -down-> DB : port 5432
 }
 
@@ -294,7 +294,7 @@ cloud "Internet" {
   [OpenAI API]
 }
 
-LLM -up-> OpenAI : HTTPS
+AGI -up-> OpenAI : HTTPS
 
 @enduml
 ```

@@ -11,7 +11,7 @@ A full-stack reactive chatbot application with streaming responses, dynamic tool
 
 - 🎯 **Real-Time Streaming**: Server-Sent Events (SSE) for instantaneous response delivery
 - 🔧 **Dynamic Tool Execution**: MCP integration for extensible tool discovery and execution
-- 🤖 **Multiple LLM Support**: Works with OpenAI, Ollama, and other OpenAI-compatible APIs
+- 🤖 **Multiple LLM Support**: Works with OpenAI, LocalAI, and other Responses-compatible APIs
 - 🔐 **Tool Approval System**: Configurable approval policies for secure tool execution
 - 🚀 **Reactive Architecture**: Non-blocking I/O throughout the stack with Project Reactor
 - 📱 **Modern UI**: React 19 with TypeScript and real-time updates
@@ -22,15 +22,15 @@ A full-stack reactive chatbot application with streaming responses, dynamic tool
 
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌──────────────────┐
-│  React Frontend │────▶│ Spring Boot API │────▶│  LiteLLM Gateway │
-│   (Port 3000)   │◀────│   (Port 8080)   │◀────│   (Port 4000)    │
+│  React Frontend │────▶│ Spring Boot API │────▶│ LocalAGI Gateway │
+│   (Port 3000)   │◀────│   (Port 8080)   │◀────│   (Port 8083)    │
 └─────────────────┘     └─────────────────┘     └──────────────────┘
                               │                           │
                               ▼                           ▼
                         ┌──────────┐              ┌─────────────┐
-                        │   n8n    │              │   Ollama    │
+                        │   n8n    │              │   LocalAI   │
                         │MCP Server│              │ Local LLMs  │
-                        │Port 5678 │              │ Port 11434  │
+                        │Port 5678 │              │ Port 8082   │
                         └──────────┘              └─────────────┘
                               │
                               ▼
@@ -43,7 +43,7 @@ A full-stack reactive chatbot application with streaming responses, dynamic tool
 **Tech Stack:**
 - **Backend**: Spring Boot 3.4 + WebFlux + R2DBC + PostgreSQL 16
 - **Frontend**: React 19 + Vite + TypeScript + Zustand
-- **LLM Gateway**: LiteLLM (OpenAI, Ollama support)
+- **LLM Gateway**: LocalAGI (OpenAI Responses) + LocalAI runtime
 - **Automation**: n8n with MCP integration
 - **Build**: Gradle multi-project setup
 
@@ -64,13 +64,13 @@ See [System Architecture](docs/architecture/SYSTEM_OVERVIEW.md) for detailed doc
 git clone https://github.com/your-org/chatbot.git
 cd chatbot
 
-# Start PostgreSQL, n8n, LiteLLM, and Ollama
+# Start PostgreSQL, n8n, LocalAI, and LocalAGI
 ./gradlew developmentUp
 ```
 
 > **Note**: The Gradle tasks automatically create a `.env` file from `.env.example` if it doesn't exist. You can customize environment variables by editing the `.env` file.
 
-> **Ollama models**: A dedicated `ollama-seeder` service now preloads the Ollama models defined in `OLLAMA_SEED_MODELS` (default: `llama3.2:1b,phi3.5:3.8b,qwen2.5:1.5b`). Adjust this variable in your `.env` file if you need a different model set.
+> **LocalAI models**: The `localai-seeder` service downloads the GGUF models listed in `LOCALAI_SEED_MODELS` (default: `huggingface://TheBloke/Llama-3.2-1B-Instruct-GGUF/...`). Adjust this variable in your `.env` file and rerun `./gradlew localAiInstallModels` to keep runtimes reproducible.
 
 ### 2. Run Backend
 
@@ -103,6 +103,14 @@ Navigate to http://localhost:5173 and start chatting!
 4. Configure MCP servers in Settings for tool integration
 
 See [Getting Started Guide](docs/guides/GETTING_STARTED.md) for detailed instructions.
+
+### LocalAI Model Management
+
+1. **Configure models:** Update `LOCALAI_SEED_MODELS` in `.env` with one or more GGUF URIs (comma-separated).  
+2. **Install models deterministically:** `./gradlew localAiInstallModels` runs the `localai-seeder` service (uses `local-ai models install ...` inside the container).  
+3. **Inspect what is installed:** `./gradlew localAiListModels` executes `local-ai models list` inside the `localai` container so you can verify versions before promoting to production.
+
+Because both LocalAI and LocalAGI run from pinned container images, you get reproducible environments across CI/CD, dev, and prod.
 
 ## 📚 Documentation
 
@@ -157,7 +165,7 @@ Build coding assistants that:
 chatbot/
 ├── chatbot/                # React frontend
 ├── chatbot-backend/        # Spring Boot backend
-├── config/                 # Configuration files
+├── config/                 # Infrastructure overrides (reserved)
 ├── docs/                   # Documentation
 │   ├── architecture/       # Architecture docs
 │   ├── guides/             # User guides
@@ -186,9 +194,12 @@ npm run lint                          # Lint code
 ./gradlew up                          # Start all services
 ./gradlew down                        # Stop services
 
-# Ollama
-./gradlew ollamaListModels           # List models
-./gradlew ollamaInstallModels        # Install models
+# LocalAI Runtime
+./gradlew localAiListModels          # docker compose exec local-ai models list
+./gradlew localAiInstallModels       # Run localai-seeder (LOCALAI_SEED_MODELS)
+
+# Smoke test (LocalAGI + MCP)
+scripts/mcp-smoke-test.sh
 ```
 
 ### Running Tests
@@ -203,6 +214,10 @@ npm run lint                          # Lint code
 # Frontend tests
 cd chatbot
 npm test
+
+# Local stack smoke test (LocalAGI + MCP)
+./scripts/mcp-smoke-test.sh
+# Customize with SMOKE_TOOL_NAME/SMOKE_PROMPT env vars to force a deterministic MCP tool call.
 ```
 
 ## 🔐 Security
@@ -335,9 +350,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [Spring Boot](https://spring.io/projects/spring-boot) - Backend framework
 - [React](https://react.dev/) - Frontend framework
 - [OpenAI](https://openai.com/) - LLM provider
-- [LiteLLM](https://github.com/BerriAI/litellm) - LLM gateway
+- [LocalAI](https://github.com/mudler/LocalAI) - Local runtime
+- [LocalAGI](https://github.com/mudler/localagi) - Responses-compatible agent gateway
 - [n8n](https://n8n.io/) - Workflow automation
-- [Ollama](https://ollama.ai/) - Local LLM runtime
 - [Model Context Protocol](https://modelcontextprotocol.io/) - Tool integration standard
 
 ## 📞 Support

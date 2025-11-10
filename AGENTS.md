@@ -17,7 +17,7 @@ This is a **full-stack reactive chatbot application** built with:
 - **Backend**: Spring Boot 3.4 with WebFlux (reactive, non-blocking)
 - **Frontend**: React 19 + Vite + TypeScript + Zustand
 - **Database**: PostgreSQL 16 with R2DBC (reactive driver)
-- **LLM Integration**: OpenAI-compatible API via LiteLLM proxy
+- **LLM Integration**: OpenAI-compatible API via LocalAGI (Responses) + LocalAI runtime
 - **Tool Execution**: Model Context Protocol (MCP) for dynamic tool integration
 - **Workflow Automation**: n8n integration for complex automations
 
@@ -38,7 +38,7 @@ User Input → Frontend (React)
     ↓
 Backend API (Spring WebFlux)
     ↓
-OpenAI Responses API (via LiteLLM)
+OpenAI Responses API (via LocalAGI)
     ↓ (if tool call needed)
 MCP Server (n8n, custom tools)
     ↓
@@ -66,9 +66,9 @@ Tool Result → OpenAI → Final Response → User
 
 #### Infrastructure
 - **Containerization**: Docker + Docker Compose
-- **LLM Gateway**: LiteLLM (supports multiple providers: OpenAI, Ollama, etc.)
+- **LLM Gateway**: LocalAGI (OpenAI Responses-compatible gateway)
 - **Automation**: n8n workflow engine
-- **Model Runtime**: Ollama (local LLM execution)
+- **Model Runtime**: LocalAI (deterministic GGUF runtime)
 
 ---
 
@@ -79,7 +79,7 @@ Tool Result → OpenAI → Final Response → User
 /
 ├── chatbot-backend/          # Spring Boot backend application
 ├── chatbot/                  # React frontend application
-├── config/                   # Shared configuration (LiteLLM config)
+├── config/                   # Reserved for infra overrides (LocalAI/localagi)
 ├── gradle/                   # Gradle wrapper
 ├── .github/                  # GitHub Actions CI/CD
 ├── build.gradle              # Root Gradle build with Docker Compose tasks
@@ -513,7 +513,7 @@ fetchEventSource("/api/responses/stream", {
    cd chatbot
    ```
 
-2. **Start infrastructure** (Ollama, LiteLLM, n8n, PostgreSQL)
+2. **Start infrastructure** (LocalAI, LocalAGI, n8n, PostgreSQL)
    ```bash
    ./gradlew developmentUp
    ```
@@ -537,7 +537,8 @@ fetchEventSource("/api/responses/stream", {
    - Frontend: http://localhost:5173
    - Backend API: http://localhost:8080
    - n8n: http://localhost:5678
-   - LiteLLM: http://localhost:4000
+   - LocalAI: http://localhost:8082
+   - LocalAGI (Responses API): http://localhost:8083/v1
 
 ### Production Deployment
 
@@ -554,8 +555,10 @@ docker compose up -d
 See `.env.example` for all configuration options.
 
 Key variables:
-- `OPENAI_API_KEY`: OpenAI API key
-- `OPENAI_BASE_URL`: Custom LLM endpoint (default: http://litellm:4000)
+- `OPENAI_API_KEY`: Shared key for LocalAGI + backend (default: `sk-local-master`)
+- `OPENAI_BASE_URL`: Custom LLM endpoint (default: http://localagi:8080/v1)
+- `LOCALAI_SEED_MODELS`: Comma-separated GGUF URIs for deterministic seeding
+- `LOCALAI_API_KEY`, `LOCALAI_PORT`, `LOCALAGI_PORT`: Local runtime config
 - `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`: Database config
 - `N8N_HOST`, `N8N_PORT`: n8n configuration
 
