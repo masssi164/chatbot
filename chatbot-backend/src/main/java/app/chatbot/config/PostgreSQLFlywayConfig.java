@@ -1,5 +1,7 @@
 package app.chatbot.config;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.flyway.FlywayMigrationStrategy;
 import org.springframework.context.annotation.Bean;
@@ -15,6 +17,8 @@ import org.springframework.context.annotation.Profile;
 @Configuration
 @Profile("prod")
 public class PostgreSQLFlywayConfig {
+    
+    private static final Logger log = LoggerFactory.getLogger(PostgreSQLFlywayConfig.class);
 
     /**
      * Standard Flyway Strategie für PostgreSQL 16.x
@@ -41,8 +45,8 @@ public class PostgreSQLFlywayConfig {
     @ConditionalOnProperty(name = "app.flyway.strategy", havingValue = "skip")
     public FlywayMigrationStrategy skipFlywayStrategy() {
         return flyway -> {
-            // Keine Migration - für manuelle DB-Setup oder wenn Flyway Probleme verursacht
-            System.out.println("INFO: Flyway Migration übersprungen - Manuelle DB-Verwaltung aktiv");
+            // No migration - for manual DB setup or when Flyway causes issues
+            log.info("Flyway Migration skipped - Manual DB management active");
         };
     }
 }

@@ -1,5 +1,7 @@
 package app.chatbot.responses;
 
+import static app.chatbot.responses.ResponseStreamConstants.*;
+
 import java.io.IOException;
 import java.time.Instant;
 import java.util.HashMap;
@@ -90,7 +92,7 @@ public class ResponseStreamService {
                     
                     // Debug: Log the complete request payload to OpenAI
                     try {
-                        log.info("🚀 Request to OpenAI Responses API: {}", objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(mutablePayload));
+                        log.debug("Request to OpenAI Responses API: {}", objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(mutablePayload));
                     } catch (Exception e) {
                         log.warn("Failed to log request payload", e);
                     }
@@ -103,7 +105,7 @@ public class ResponseStreamService {
                                             .put("title", conversation.getTitle())
                                             .toString()
                             )
-                            .event("conversation.ready")
+                            .event(EVENT_CONVERSATION_READY)
                             .build();
 
                     WebClient.RequestBodySpec spec = webClient.post()
@@ -126,13 +128,13 @@ public class ResponseStreamService {
                             .onErrorResume(error -> Flux.just(buildErrorEvent(error)));
 
                     // Use flatMap with subscribeOn for non-blocking DB writes
-                    // Concurrency limit of 256 prevents overwhelming R2DBC connection pool
+                    // Concurrency limit prevents overwhelming R2DBC connection pool
                     Flux<ServerSentEvent<String>> processed = upstream
                             .flatMap(event -> 
                                     handleEvent(event, state)
                                             .subscribeOn(Schedulers.boundedElastic())
                                             .thenReturn(cloneEvent(event)),
-                                    256  // Max concurrency
+                                    MAX_EVENT_CONCURRENCY
                             )
                             .doFinally(signal -> {
                                 log.info("Stream terminated: {} (conversation: {})", signal, state.conversationId);
@@ -197,7 +199,7 @@ public class ResponseStreamService {
                 
                 // Build approval response input
                 ObjectNode approvalInput = objectMapper.createObjectNode();
-                approvalInput.put("type", "mcp_approval_response");
+                approvalInput.put("type", MCP_TYPE_APPROVAL_RESPONSE);
                 approvalInput.put("approval_request_id", approvalRequestId);
                 approvalInput.put("approve", approve);
                 if (reason != null && !reason.isEmpty()) {
@@ -207,12 +209,12 @@ public class ResponseStreamService {
                 // Build request payload
                 ObjectNode payload = objectMapper.createObjectNode();
                 payload.put("previous_response_id", previousResponseId);
-                payload.put("model", "gpt-4o"); // Model from original request
-                payload.putArray("modalities").add("text");
+                payload.put("model", DEFAULT_MODEL);
+                payload.putArray("modalities").add(MODALITY_TEXT);
                 payload.putArray("input").add(approvalInput);
                 payload.put("stream", true);
                 
-                log.info("🔔 Sending MCP Approval Response: conversation={}, approval_request_id={}, approve={}, previous_response_id={}", 
+                log.info("Sending MCP Approval Response: conversation={}, approval_request_id={}, approve={}, previous_response_id={}", 
                     conversationId, approvalRequestId, approve, previousResponseId);
                 
                 // Create new stream state for approval response
@@ -234,8 +236,8 @@ public class ResponseStreamService {
                     .bodyToFlux(SSE_TYPE)
                     .flatMap(sseEvent -> handleEvent(sseEvent, state)
                         .thenReturn(sseEvent))
-                    .doOnComplete(() -> log.info("✅ Approval response stream completed for conversation {}", conversationId))
-                    .doOnError(error -> log.error("❌ Approval response stream failed for conversation {}: {}", 
+                    .doOnComplete(() -> log.info("Approval response stream completed for conversation {}", conversationId))
+                    .doOnError(error -> log.error("Approval response stream failed for conversation {}: {}", 
                         conversationId, error.getMessage()));
             });
     }
@@ -306,46 +308,46 @@ public class ResponseStreamService {
 
         // Log all MCP-related events for debugging
         if (eventName.startsWith("response.mcp_call")) {
-            log.debug("🔍 MCP Event: {} - payload: {}", eventName, payload.toPrettyString());
+            log.trace("MCP Event: {} for conversation: {}", eventName, state.conversationId);
         }
 
         return switch (eventName) {
             // Lifecycle events
-            case "response.created" -> handleResponseCreated(payload, state);
-            case "response.completed" -> handleResponseCompleted(payload, state);
-            case "response.incomplete" -> handleResponseIncomplete(payload, state);
-            case "response.failed" -> handleResponseFailed(payload, state);
+            case EVENT_RESPONSE_CREATED -> handleResponseCreated(payload, state);
+            case EVENT_RESPONSE_COMPLETED -> handleResponseCompleted(payload, state);
+            case EVENT_RESPONSE_INCOMPLETE -> handleResponseIncomplete(payload, state);
+            case EVENT_RESPONSE_FAILED -> handleResponseFailed(payload, state);
             
             // Error events
-            case "response.error" -> handleResponseError(payload, state);
-            case "error" -> handleCriticalError(payload, state);
+            case EVENT_RESPONSE_ERROR -> handleResponseError(payload, state);
+            case EVENT_ERROR -> handleCriticalError(payload, state);
             
             // Text output events
-            case "response.output_text.delta" -> handleTextDelta(payload, state);
-            case "response.output_text.done" -> handleTextDone(payload, state, data);
-            case "response.output_item.added" -> handleOutputItemAdded(payload, state);
+            case EVENT_OUTPUT_TEXT_DELTA -> handleTextDelta(payload, state);
+            case EVENT_OUTPUT_TEXT_DONE -> handleTextDone(payload, state, data);
+            case EVENT_OUTPUT_ITEM_ADDED -> handleOutputItemAdded(payload, state);
             
             // Function call events
-            case "response.function_call_arguments.delta" -> handleFunctionArgumentsDelta(payload, state);
-            case "response.function_call_arguments.done" -> handleFunctionArgumentsDone(payload, state);
+            case EVENT_FUNCTION_ARGUMENTS_DELTA -> handleFunctionArgumentsDelta(payload, state);
+            case EVENT_FUNCTION_ARGUMENTS_DONE -> handleFunctionArgumentsDone(payload, state);
             
             // MCP call events
-            case "response.mcp_call_arguments.delta" -> handleMcpArgumentsDelta(payload, state);
-            case "response.mcp_call_arguments.done" -> handleMcpArgumentsDone(payload, state);
-            case "response.mcp_call.in_progress" -> updateToolCallStatus(payload, state, ToolCallStatus.IN_PROGRESS, null);
-            case "response.mcp_call.completed" -> updateToolCallStatus(payload, state, ToolCallStatus.COMPLETED, null);
-            case "response.mcp_call.failed" -> updateToolCallStatus(payload, state, ToolCallStatus.FAILED, payload.path("error").asText(null));
+            case EVENT_MCP_ARGUMENTS_DELTA -> handleMcpArgumentsDelta(payload, state);
+            case EVENT_MCP_ARGUMENTS_DONE -> handleMcpArgumentsDone(payload, state);
+            case EVENT_MCP_CALL_IN_PROGRESS -> updateToolCallStatus(payload, state, ToolCallStatus.IN_PROGRESS, null);
+            case EVENT_MCP_CALL_COMPLETED -> updateToolCallStatus(payload, state, ToolCallStatus.COMPLETED, null);
+            case EVENT_MCP_CALL_FAILED -> updateToolCallStatus(payload, state, ToolCallStatus.FAILED, payload.path("error").asText(null));
             
             // MCP approval events
-            case "response.mcp_approval_request" -> {
-                log.info("🎯 MCP APPROVAL REQUEST EVENT RECEIVED! Payload: {}", payload.toPrettyString());
+            case EVENT_MCP_APPROVAL_REQUEST -> {
+                log.debug("MCP APPROVAL REQUEST EVENT RECEIVED for conversation: {}", state.conversationId);
                 yield handleMcpApprovalRequest(payload, state);
             }
             
             // MCP list tools events
-            case "response.mcp_list_tools.in_progress" -> handleMcpListToolsEvent(payload, "in_progress");
-            case "response.mcp_list_tools.completed" -> handleMcpListToolsEvent(payload, "completed");
-            case "response.mcp_list_tools.failed" -> handleMcpListToolsEvent(payload, "failed");
+            case EVENT_MCP_LIST_TOOLS_IN_PROGRESS -> handleMcpListToolsEvent(payload, "in_progress");
+            case EVENT_MCP_LIST_TOOLS_COMPLETED -> handleMcpListToolsEvent(payload, "completed");
+            case EVENT_MCP_LIST_TOOLS_FAILED -> handleMcpListToolsEvent(payload, "failed");
             
             default -> Mono.empty();
         };
@@ -395,12 +397,12 @@ public class ResponseStreamService {
         Integer outputIndex = payload.path("output_index").isInt() ? payload.get("output_index").asInt() : null;
         String itemId = item.path("id").asText();
 
-        if ("output_text".equals(type)) {
+        if (ITEM_TYPE_OUTPUT_TEXT.equals(type)) {
             // nothing to persist yet; handled via text events
             return Mono.empty();
         }
 
-        if ("function_call".equals(type)) {
+        if (ITEM_TYPE_FUNCTION_CALL.equals(type)) {
             Map<String, Object> attributes = new HashMap<>();
             attributes.put("name", item.path("name").asText(null));
             
@@ -418,8 +420,8 @@ public class ResponseStreamService {
                     .then();
         }
 
-        if ("mcp_call".equals(type)) {
-            log.info("📞 MCP Tool Call detected - item_id: {}, outputIndex: {}", itemId, outputIndex);
+        if (ITEM_TYPE_MCP_CALL.equals(type)) {
+            log.info("MCP Tool Call detected - item_id: {}, outputIndex: {}", itemId, outputIndex);
             
             Map<String, Object> attributes = new HashMap<>();
             attributes.put("name", item.path("name").asText(null));
@@ -447,12 +449,12 @@ public class ResponseStreamService {
             return conversationService.upsertToolCall(state.conversationId, itemId, ToolCallType.MCP, outputIndex, attributes)
                     .doOnNext(toolCall -> {
                         state.toolCalls.put(itemId, ToolCallTracker.from(toolCall));
-                        log.info("✅ MCP Tool Call upserted - item_id: {}, status: {}", itemId, toolCall.getStatus());
+                        log.info("MCP Tool Call upserted - item_id: {}, status: {}", itemId, toolCall.getStatus());
                     })
                     .then();
         }
 
-        if ("tool_output".equals(type)) {
+        if (ITEM_TYPE_TOOL_OUTPUT.equals(type)) {
             // Some models emit tool output as a normal message chunk.
             String role = item.path("role").asText("");
             if ("tool".equalsIgnoreCase(role)) {
@@ -569,7 +571,7 @@ public class ResponseStreamService {
         return conversationService.upsertToolCall(state.conversationId, itemId, type, outputIndex, attributes)
                 .doOnNext(toolCall -> {
                     state.toolCalls.put(itemId, ToolCallTracker.from(toolCall));
-                    log.info("✅ Tool Call status updated - item_id: {}, final_status: {}", itemId, toolCall.getStatus());
+                    log.info("Tool Call status updated - item_id: {}, final_status: {}", itemId, toolCall.getStatus());
                 })
                 .then();
     }
@@ -609,7 +611,7 @@ public class ResponseStreamService {
         String toolName = payload.path("tool_name").asText(null);
         String arguments = payload.path("arguments").asText(null);
         
-        log.info("🔔 MCP Approval Request: tool={}, server={}, approval_request_id={}", 
+        log.info("MCP Approval Request: tool={}, server={}, approval_request_id={}", 
             toolName, serverLabel, approvalRequestId);
         
         // Event is automatically passed through to frontend via SSE
@@ -654,7 +656,7 @@ public class ResponseStreamService {
         }
 
         return ServerSentEvent.<String>builder(errorNode.toString())
-                .event("response.failed")
+                .event(EVENT_RESPONSE_FAILED)
                 .build();
     }
 
@@ -671,7 +673,7 @@ public class ResponseStreamService {
         state.responseId = responseId;
         state.status = ConversationStatus.STREAMING;
 
-        log.info("✅ Response created: {} for conversation: {}", responseId, state.conversationId);
+        log.info("Response created: {} for conversation: {}", responseId, state.conversationId);
 
         return conversationService.updateConversationResponseId(state.conversationId, responseId)
                 .then();
@@ -685,7 +687,7 @@ public class ResponseStreamService {
         String responseId = response.path("id").asText();
         state.status = ConversationStatus.COMPLETED;
 
-        log.info("✅ Response completed: {} for conversation: {}", responseId, state.conversationId);
+        log.info("Response completed: {} for conversation: {}", responseId, state.conversationId);
 
         return conversationService.finalizeConversation(
                 state.conversationId,
@@ -725,7 +727,7 @@ public class ResponseStreamService {
         String errorMessage = error.path("message").asText("");
         state.status = ConversationStatus.FAILED;
 
-        log.error("❌ Response failed: {} - {} (conversation: {})",
+        log.error("Response failed: {} - {} (conversation: {})",
                 errorCode, errorMessage, state.conversationId);
 
         return conversationService.finalizeConversation(
@@ -746,9 +748,9 @@ public class ResponseStreamService {
 
         // Special handling for rate limits
         if ("rate_limit_exceeded".equals(code)) {
-            log.warn("⚠️ Rate limit hit for conversation {}: {}", state.conversationId, message);
+            log.warn("Rate limit hit for conversation {}: {}", state.conversationId, message);
         } else {
-            log.error("❌ Response error: {} - {} (conversation: {})", code, message, state.conversationId);
+            log.error("Response error: {} - {} (conversation: {})", code, message, state.conversationId);
         }
 
         return Mono.empty();
@@ -764,7 +766,7 @@ public class ResponseStreamService {
 
         state.status = ConversationStatus.FAILED;
 
-        log.error("❌ CRITICAL ERROR: {} - {} (conversation: {})",
+        log.error("CRITICAL ERROR: {} - {} (conversation: {})",
                 code, message, state.conversationId);
 
         return conversationService.finalizeConversation(

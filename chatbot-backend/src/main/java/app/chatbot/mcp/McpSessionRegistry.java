@@ -1,5 +1,7 @@
 package app.chatbot.mcp;
 
+import static app.chatbot.mcp.config.McpSessionConstants.*;
+
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Duration;
@@ -47,8 +49,6 @@ import reactor.core.publisher.Mono;
 @Component
 @Slf4j
 public class McpSessionRegistry implements ApplicationListener<ContextClosedEvent> {
-
-    private static final Duration IDLE_TIMEOUT = Duration.ofMinutes(30);
     
     private final ConcurrentHashMap<String, SessionHolder> sessions = new ConcurrentHashMap<>();
     private final McpServerRepository serverRepository;
@@ -71,17 +71,15 @@ public class McpSessionRegistry implements ApplicationListener<ContextClosedEven
      * @return Mono mit initialisiertem McpAsyncClient
      */
     public Mono<McpAsyncClient> getOrCreateSession(String serverId) {
-        System.err.println("🔵 getOrCreateSession called for serverId: " + serverId);
-        Mono<McpAsyncClient> result = Mono.defer(() -> {
-            System.err.println("🟢 Mono.defer() lambda executing for serverId: " + serverId);
-            System.err.println("🔵 Inside Mono.defer for serverId: " + serverId);
+        log.trace("getOrCreateSession called for serverId: {}", serverId);
+        return Mono.defer(() -> {
+            log.trace("Mono.defer() lambda executing for serverId: {}", serverId);
             
             // Track if we created a new SessionHolder
             final boolean[] isNewHolder = {false};
             
             SessionHolder holder = sessions.computeIfAbsent(serverId, key -> {
-                System.err.println("🟢 Creating new SessionHolder for serverId: " + serverId);
-                log.debug("Creating new MCP session for server: {}", serverId);
+                log.debug("Creating new SessionHolder for serverId: {}", serverId);
                 isNewHolder[0] = true;
                 return new SessionHolder(serverId);
             });
@@ -99,14 +97,14 @@ public class McpSessionRegistry implements ApplicationListener<ContextClosedEven
 
             // If we just created this holder, initialize it immediately (don't check INITIALIZING state)
             if (isNewHolder[0]) {
-                System.err.println("🎯 New SessionHolder created, initializing immediately for serverId: " + serverId);
+                log.debug("New SessionHolder created, initializing immediately for serverId: {}", serverId);
                 return initializeSession(holder);
             }
 
             if (currentState == SessionState.INITIALIZING) {
                 // Another thread is initializing, wait briefly and retry
                 log.debug("Session {} is being initialized by another thread, waiting...", serverId);
-                return Mono.delay(Duration.ofMillis(50))
+                return Mono.delay(RETRY_DELAY)
                     .then(Mono.defer(() -> getOrCreateSession(serverId)));
             }
 
@@ -120,8 +118,6 @@ public class McpSessionRegistry implements ApplicationListener<ContextClosedEven
             // Initialize new session
             return initializeSession(holder);
         });
-        System.err.println("🟡 Returning Mono for serverId: " + serverId);
-        return result;
     }
 
     /**
@@ -139,21 +135,21 @@ public class McpSessionRegistry implements ApplicationListener<ContextClosedEven
                 "MCP server not found: " + holder.serverId)))
             .flatMap(server -> {
                 try {
-                    System.err.println("🚨 initializeSession: serverId=" + server.getServerId() + 
-                        ", baseUrl=" + server.getBaseUrl() + ", transport=" + server.getTransportEnum());
+                    log.debug("initializeSession: serverId={}, baseUrl={}, transport={}", 
+                        server.getServerId(), server.getBaseUrl(), server.getTransportEnum());
                     
                     String decryptedApiKey = decryptApiKey(server);
                     
                     // For SSE: Use baseUrl directly from server without endpoint resolution
                     // This ensures we connect to the exact URL provided by the user
                     String targetUrl = server.getBaseUrl();
-                    log.info("🔗 MCP Connection Attempt - Server: {}, Transport: {}, Target URL: '{}'", 
+                    log.info("MCP Connection Attempt - Server: {}, Transport: {}, Target URL: '{}'", 
                         server.getServerId(), server.getTransportEnum(), targetUrl);
                     
                     McpClientTransport transport = createTransport(targetUrl, decryptedApiKey, 
                         server.getTransportEnum());
                     
-                    System.err.println("🎉 Transport created successfully!");
+                    log.debug("Transport created successfully for server: {}", server.getServerId());
 
                     McpAsyncClient client = McpClient
                         .async(transport)
@@ -219,7 +215,7 @@ public class McpSessionRegistry implements ApplicationListener<ContextClosedEven
             log.info("Closing MCP session for server: {}", serverId);
 
             return holder.client.closeGracefully()
-                .timeout(Duration.ofSeconds(5))
+                .timeout(SESSION_CLOSE_TIMEOUT)
                 .doOnSuccess(v -> log.info("MCP session closed for server: {}", serverId))
                 .doOnError(error -> log.warn("Error closing MCP session for server {}: {}", 
                     serverId, error.getMessage()))
@@ -256,7 +252,7 @@ public class McpSessionRegistry implements ApplicationListener<ContextClosedEven
     private McpClientTransport createTransport(String targetUrl,
                                                String apiKey,
                                                McpTransport transport) {
-        System.err.println("🏗️ createTransport called: URL=" + targetUrl + ", transport=" + transport);
+        log.debug("createTransport called: URL={}, transport={}", targetUrl, transport);
         
         HttpClient.Builder clientBuilder = HttpClient.newBuilder()
             .connectTimeout(properties.connectTimeout());
@@ -357,7 +353,7 @@ public class McpSessionRegistry implements ApplicationListener<ContextClosedEven
      */
     @Scheduled(fixedDelay = 600000) // 10 Minuten
     public void cleanupIdleSessions() {
-        Instant cutoff = Instant.now().minus(IDLE_TIMEOUT);
+        Instant cutoff = Instant.now().minus(SESSION_IDLE_TIMEOUT);
         
         sessions.entrySet().stream()
             .filter(entry -> {
