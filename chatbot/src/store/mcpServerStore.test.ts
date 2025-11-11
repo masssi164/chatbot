@@ -11,23 +11,7 @@ vi.mock("../services/apiClient", () => ({
     deleteMcpServer: vi.fn(),
     getMcpCapabilities: vi.fn(),
   },
-  resolveApiUrl: vi.fn((path: string) => `http://localhost:8080${path}`),
 }));
-
-// Mock EventSource
-class MockEventSource {
-  url: string;
-  onmessage: ((event: MessageEvent) => void) | null = null;
-  onerror: ((event: Event) => void) | null = null;
-  onopen: (() => void) | null = null;
-  close = vi.fn();
-  
-  constructor(url: string) {
-    this.url = url;
-  }
-}
-
-(globalThis as any).EventSource = MockEventSource;
 
 describe("mcpServerStore", () => {
   beforeEach(() => {
@@ -36,7 +20,6 @@ describe("mcpServerStore", () => {
       servers: [],
       activeServerId: null,
       isSyncing: false,
-      sseConnection: null,
     });
     
     // Reset mocks
@@ -59,7 +42,8 @@ describe("mcpServerStore", () => {
           baseUrl: "http://localhost:5678",
           status: "idle",
           transport: "SSE",
-          lastUpdated: Date.now(),
+          updatedAt: Date.now(),
+          requireApproval: "never",
         }],
       });
 
@@ -82,10 +66,11 @@ describe("mcpServerStore", () => {
           serverId: "test-1",
           name: "Test Server",
           baseUrl: "http://localhost:5678",
-          hasApiKey: false,
           status: "IDLE" as const,
           transport: "SSE" as const,
-          lastUpdated: "2024-01-01T00:00:00Z",
+          createdAt: "2024-01-01T00:00:00Z",
+          updatedAt: "2024-01-02T00:00:00Z",
+          requireApproval: "never" as const,
         },
       ];
 
@@ -122,10 +107,11 @@ describe("mcpServerStore", () => {
         serverId: "new-server",
         name: "New Server",
         baseUrl: "http://localhost:5678",
-        hasApiKey: false,
         status: "IDLE" as const,
         transport: "SSE" as const,
-        lastUpdated: "2024-01-01T00:00:00Z",
+        createdAt: "2024-01-01T00:00:00Z",
+        updatedAt: "2024-01-01T00:00:00Z",
+        requireApproval: "never" as const,
       };
 
       vi.mocked(apiClient.upsertMcpServer).mockResolvedValue(mockResponse);
@@ -169,7 +155,8 @@ describe("mcpServerStore", () => {
           baseUrl: "http://localhost:5678",
           status: "idle",
           transport: "SSE",
-          lastUpdated: Date.now(),
+          updatedAt: Date.now(),
+          requireApproval: "never",
         }],
       });
 
@@ -197,7 +184,8 @@ describe("mcpServerStore", () => {
           baseUrl: "http://localhost:5678",
           status: "connected", // Must be "connected" - loadCapabilities only works for servers with connected status
           transport: "SSE",
-          lastUpdated: Date.now(),
+          updatedAt: Date.now(),
+          requireApproval: "never",
         }],
       });
 
@@ -228,7 +216,8 @@ describe("mcpServerStore", () => {
           baseUrl: "http://localhost:5678",
           status: "connected", // Must be "connected" - loadCapabilities early returns if status !== "connected"
           transport: "SSE",
-          lastUpdated: Date.now(),
+          updatedAt: Date.now(),
+          requireApproval: "never",
         }],
       });
       
@@ -242,28 +231,6 @@ describe("mcpServerStore", () => {
       expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("Failed to load capabilities"), expect.any(Error));
       
       consoleError.mockRestore();
-    });
-  });
-
-  describe("SSE connection", () => {
-    it("should connect to status stream", () => {
-      useMcpServerStore.getState().connectToStatusStream();
-
-      const state = useMcpServerStore.getState();
-      expect(state.sseConnection).not.toBeNull();
-      expect(state.sseConnection?.url).toContain("/mcp/servers/status-stream"); // Actual URL format
-    });
-
-    it("should disconnect from status stream", () => {
-      useMcpServerStore.getState().connectToStatusStream();
-      
-      const connection = useMcpServerStore.getState().sseConnection;
-      expect(connection).not.toBeNull();
-
-      useMcpServerStore.getState().disconnectFromStatusStream();
-
-      expect(useMcpServerStore.getState().sseConnection).toBeNull();
-      expect(connection?.close).toHaveBeenCalled();
     });
   });
 });

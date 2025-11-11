@@ -207,24 +207,13 @@ npm test
 
 ## 🔐 Security
 
-### API Key Encryption
+### LiteLLM Admin Token
 
-API keys are encrypted in the database using AES-GCM:
+MCP server management now happens inside LiteLLM. The backend only calls LiteLLM's admin API using `LITELLM_ADMIN_TOKEN`. Treat this token like any other production secret and prefer distributing it via a secrets manager or CI/CD vault.
 
-```properties
-# Set encryption key via environment variable
-MCP_ENCRYPTION_KEY=your-32-character-secret-key-here
-```
+### Tool Approval Flow
 
-### Tool Approval Policies
-
-Control tool execution with approval policies:
-
-- **ALWAYS_ALLOW**: Tool executes immediately (for trusted tools)
-- **ALWAYS_DENY**: Tool execution blocked (for dangerous operations)
-- **ASK_USER**: User must approve each execution (default, most secure)
-
-Configure in Settings → MCP Servers → Approval Policies
+Per-tool approval policies have been removed. The Responses API emits `mcp_approval_request` events whenever the model or LiteLLM requires user confirmation. The frontend still surfaces these requests through the approval dialog so users can approve or deny calls in real time.
 
 ### Production Security Checklist
 

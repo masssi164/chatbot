@@ -73,23 +73,6 @@
   color: var(--text-primary);
 }
 
-.approval-remember {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 1rem;
-  font-size: 0.875rem;
-  color: var(--text-secondary);
-  cursor: pointer;
-  user-select: none;
-}
-
-.approval-remember input[type="checkbox"] {
-  cursor: pointer;
-  width: 16px;
-  height: 16px;
-}
-
 .approval-actions {
   display: flex;
   gap: 0.5rem;

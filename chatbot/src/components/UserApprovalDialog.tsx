@@ -1,4 +1,3 @@
-import { useState } from "react";
 import "./UserApprovalDialog.css";
 
 export interface ApprovalRequestData {
@@ -10,8 +9,8 @@ export interface ApprovalRequestData {
 
 interface UserApprovalDialogProps {
   request: ApprovalRequestData;
-  onApprove: (remember: boolean) => void;
-  onDeny: (remember: boolean) => void;
+  onApprove: () => void;
+  onDeny: () => void;
 }
 
 export function UserApprovalDialog({
@@ -19,7 +18,6 @@ export function UserApprovalDialog({
   onApprove,
   onDeny,
 }: UserApprovalDialogProps) {
-  const [remember, setRemember] = useState(false);
 
   let parsedArgs: Record<string, unknown> | null = null;
   try {
@@ -58,28 +56,20 @@ export function UserApprovalDialog({
           </div>
         )}
 
-        <label className="approval-remember">
-          <input
-            type="checkbox"
-            checked={remember}
-            onChange={(e) => setRemember(e.target.checked)}
-          />
-          <span>Auswahl für dieses Tool merken</span>
-        </label>
       </div>
 
       <div className="approval-actions">
         <button
           type="button"
           className="approval-button approval-deny"
-          onClick={() => onDeny(remember)}
+          onClick={onDeny}
         >
           Ablehnen
         </button>
         <button
           type="button"
           className="approval-button approval-approve"
-          onClick={() => onApprove(remember)}
+          onClick={onApprove}
         >
           Genehmigen
         </button>

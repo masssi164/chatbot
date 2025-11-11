@@ -21,9 +21,6 @@ export function useMcpActions() {
     registerServer: useMcpServerStore((state) => state.registerServer),
     setActiveServer: useMcpServerStore((state) => state.setActiveServer),
     updateServer: useMcpServerStore((state) => state.updateServer),
-    setServerStatus: useMcpServerStore((state) => state.setServerStatus),
     removeServer: useMcpServerStore((state) => state.removeServer),
-    connectToStatusStream: useMcpServerStore((state) => state.connectToStatusStream),
-    disconnectFromStatusStream: useMcpServerStore((state) => state.disconnectFromStatusStream),
   };
 }

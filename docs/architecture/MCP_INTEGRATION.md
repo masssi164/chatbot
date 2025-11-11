@@ -4,6 +4,15 @@
 
 The chatbot integrates with the Model Context Protocol (MCP) to dynamically discover and execute tools from external servers. This enables extensibility through external workflows, APIs, and automation platforms like n8n.
 
+> **2025 update:** MCP orchestration is now delegated to LiteLLM. The Spring Boot backend no longer keeps its own MCP sessions or caches; instead it proxies all server CRUD operations to LiteLLM's admin API via `LiteLlmMcpService` and feeds LiteLLM-managed servers directly into the Responses payload. The legacy sections below are kept for background and still describe the original in-process client.
+
+### Current flow (LiteLLM-managed)
+
+1. `LiteLlmMcpService` calls LiteLLM admin endpoints (`/v1/mcp/server` and `/mcp-rest/tools/list`) to list/update servers and fetch capabilities.
+2. `McpServerController` and `McpToolController` expose thin REST proxies that forward the frontend's requests to LiteLLM.
+3. `LiteLlmToolDefinitionProvider` produces a single `type: "mcp"` block per LiteLLM server with `require_approval = "never"`. Approval prompts now arrive exclusively through `mcp_approval_request` events from the Responses API.
+4. Database tables `mcp_servers` and `tool_approval_policies` were dropped in migration `V8__drop_mcp_tables.sql`; there is no longer an AES-GCM encryption key to manage for MCP secrets.
+
 ## MCP Architecture
 
 ```plantuml
@@ -505,16 +514,11 @@ public Mono<CallToolResult> callToolAsync(
 ### Backend Configuration
 
 ```properties
-# MCP Configuration
-mcp.session.idle-timeout=30m
-mcp.session.initialization-timeout=10s
-mcp.capabilities.cache-ttl=5m
-mcp.approval.default-policy=ASK_USER
-mcp.approval.timeout=60s
-
-# Encryption
-mcp.encryption.key=${MCP_ENCRYPTION_KEY}
-mcp.encryption.algorithm=AES/GCM/NoPadding
+# LiteLLM MCP Admin Client
+litellm.base-url=${OPENAI_BASE_URL:http://litellm:4000}
+litellm.admin-token=${LITELLM_ADMIN_TOKEN}
+litellm.connect-timeout=PT5S
+litellm.read-timeout=PT30S
 ```
 
 ### n8n MCP Server Setup

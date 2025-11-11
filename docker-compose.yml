@@ -80,8 +80,8 @@ services:
       # OpenAI configuration
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      # MCP configuration
-      MCP_ENCRYPTION_KEY: ${MCP_ENCRYPTION_KEY:-prod-32-character-secret-key-here-change-me}
+      # LiteLLM admin API
+      LITELLM_ADMIN_TOKEN: ${LITELLM_ADMIN_TOKEN:-sk-local-master}
       # JVM settings
       JAVA_OPTS: "-Xmx1024m -Xms512m"
     healthcheck:

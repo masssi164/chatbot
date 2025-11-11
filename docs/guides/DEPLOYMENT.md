@@ -111,8 +111,8 @@ N8N_HOST=n8n
 N8N_PORT=5678
 N8N_ENCRYPTION_KEY=<RANDOM_32_CHAR_KEY>
 
-# Security
-MCP_ENCRYPTION_KEY=<RANDOM_32_CHAR_KEY>
+# LiteLLM admin API
+LITELLM_ADMIN_TOKEN=<RANDOM_32_CHAR_KEY>
 
 # Frontend
 VITE_API_BASE_URL=https://api.yourdomain.com
@@ -458,11 +458,11 @@ spec:
             secretKeyRef:
               name: openai
               key: api-key
-        - name: MCP_ENCRYPTION_KEY
+        - name: LITELLM_ADMIN_TOKEN
           valueFrom:
             secretKeyRef:
-              name: mcp-encryption
-              key: key
+              name: litellm-admin
+              key: token
         ports:
         - containerPort: 8080
         livenessProbe:

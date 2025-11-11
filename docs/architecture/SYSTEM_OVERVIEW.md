@@ -220,16 +220,17 @@ mcp_servers ||--o{ tool_approval_policies
 @enduml
 ```
 
+> **Note:** Since delegating MCP management to LiteLLM, the `mcp_servers` and `tool_approval_policies` tables were removed (see migration `V8__drop_mcp_tables.sql`). The ERD above is preserved for historical context only.
+
 ## Security Architecture
 
-### Encryption
-- API keys stored in database are encrypted using AES-GCM
-- Encryption key managed via environment variable `MCP_ENCRYPTION_KEY`
+### LiteLLM Admin Token
+- Backend no longer stores MCP credentials. Instead it calls LiteLLM's admin API with `LITELLM_ADMIN_TOKEN`.
+- Keep this token in a secrets manager or CI/CD vault; rotate it periodically.
 
-### Tool Approval Policies
-- `ALWAYS_ALLOW`: Tool executes immediately
-- `ALWAYS_DENY`: Tool execution blocked
-- `ASK_USER`: User approval required (default)
+### Tool Approval Flow
+- OpenAI's Responses API emits `mcp_approval_request` events when human approval is needed.
+- The frontend surfaces these events through the existing approval dialog; no per-tool policy storage is required anymore.
 
 ### Authentication
 - Backend validates OpenAI API key

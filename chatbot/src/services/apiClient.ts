@@ -60,14 +60,6 @@ export interface ConversationSummary {
   completionReason?: string | null;
 }
 
-export interface ToolApprovalPolicyDto {
-  serverId: string;
-  toolName: string;
-  policy: "always" | "never";
-  createdAt: string;
-  updatedAt: string;
-}
-
 export type Role = "USER" | "ASSISTANT" | "TOOL";
 
 /**
@@ -176,21 +168,28 @@ export type McpTransportType = "SSE" | "STREAMABLE_HTTP";
 
 export interface McpServerDto {
   serverId: string;
-  name: string;
+  name?: string | null;
   baseUrl: string;
-  hasApiKey: boolean;
-  status: "IDLE" | "CONNECTING" | "CONNECTED" | "ERROR";
   transport: McpTransportType;
-  lastUpdated: string;
+  status?: "IDLE" | "CONNECTING" | "CONNECTED" | "ERROR";
+  createdAt?: string;
+  updatedAt?: string;
+  requireApproval?: "never" | "always";
+  extraHeaders?: string[];
+  accessGroups?: string[];
 }
 
 export interface McpServerRequest {
   serverId?: string;
   name: string;
   baseUrl: string;
-  apiKey?: string;
-  status?: "IDLE" | "CONNECTING" | "CONNECTED" | "ERROR";
   transport: McpTransportType;
+  authType?: "none" | "authorization" | "api_key" | "oauth_client_credentials";
+  authValue?: string;
+  staticHeaders?: Record<string, string>;
+  extraHeaders?: string[];
+  accessGroups?: string[];
+  requireApproval?: "never" | "always";
 }
 
 export const apiClient = {
@@ -259,21 +258,6 @@ export const apiClient = {
     return request<McpCapabilities>(`/mcp/servers/${serverId}/capabilities`);
   },
 
-  // Tool Approval Policies
-  getToolApprovalPolicies(serverId: string): Promise<ToolApprovalPolicyDto[]> {
-    return request<ToolApprovalPolicyDto[]>(`/mcp/servers/${serverId}/tools/approval-policies`);
-  },
-
-  setToolApprovalPolicy(serverId: string, toolName: string, policy: "always" | "never"): Promise<ToolApprovalPolicyDto> {
-    return request<ToolApprovalPolicyDto>(`/mcp/servers/${serverId}/tools/${toolName}/approval-policy`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ policy }),
-    });
-  },
-
 
 
   // N8n Integration
@@ -313,7 +297,3 @@ export const apiClient = {
     return request<string[]>("/models");
   },
 };
-
-export function resolveApiUrl(path: string): string {
-  return `${API_BASE}${path}`;
-}

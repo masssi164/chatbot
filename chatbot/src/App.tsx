@@ -57,11 +57,6 @@ function App() {
     void chatActions.loadConversations();
     void chatActions.fetchModels();
     void mcpActions.loadServers();
-    mcpActions.connectToStatusStream();
-
-    return () => {
-      mcpActions.disconnectFromStatusStream();
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Run only once on mount
 
@@ -261,8 +256,8 @@ function App() {
           {chatState.pendingApprovalRequest && (
             <UserApprovalDialog
               request={chatState.pendingApprovalRequest}
-              onApprove={(remember) => chatActions.sendApprovalResponse(true, remember)}
-              onDeny={(remember) => chatActions.sendApprovalResponse(false, remember)}
+              onApprove={() => chatActions.sendApprovalResponse(true)}
+              onDeny={() => chatActions.sendApprovalResponse(false)}
             />
           )}
           

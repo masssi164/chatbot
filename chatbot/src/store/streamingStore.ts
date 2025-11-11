@@ -37,7 +37,7 @@ export interface StreamingState {
   // Actions
   sendMessage: (content: string) => Promise<void>;
   abortStreaming: () => void;
-  sendApprovalResponse: (approve: boolean, remember: boolean) => Promise<void>;
+  sendApprovalResponse: (approve: boolean) => Promise<void>;
   reset: () => void;
 }
 
@@ -202,7 +202,7 @@ export const useStreamingStore = create<StreamingState>((set, get) => ({
     }
   },
 
-  sendApprovalResponse: async (approve: boolean, remember: boolean) => {
+  sendApprovalResponse: async (approve: boolean) => {
     const conversationStore = useConversationStore.getState();
     const toolCallStore = useToolCallStore.getState();
     const conversationId = conversationStore.conversationId;
@@ -211,20 +211,6 @@ export const useStreamingStore = create<StreamingState>((set, get) => ({
     if (!pendingApprovalRequest || conversationId === null) {
       console.error("No pending approval request or conversation ID");
       return;
-    }
-
-    // If "remember" is checked, update the policy
-    if (remember) {
-      const policy = approve ? "always" : "never";
-      try {
-        await apiClient.setToolApprovalPolicy(
-          pendingApprovalRequest.serverLabel,
-          pendingApprovalRequest.toolName,
-          policy
-        );
-      } catch (err) {
-        console.error("Failed to update approval policy:", err);
-      }
     }
 
     // Clear pending approval from store

@@ -20,7 +20,6 @@ describe("McpCapabilitiesPanel", () => {
         capabilities={mockCapabilities}
         isLoading={false}
         serverName="Test Server"
-        serverId="test-server"
       />
     );
     expect(container).toBeInTheDocument();
@@ -32,7 +31,6 @@ describe("McpCapabilitiesPanel", () => {
         capabilities={mockCapabilities}
         isLoading={false}
         serverName="Test Server"
-        serverId="test-server"
       />
     );
     expect(container).toBeInTheDocument();
@@ -44,7 +42,6 @@ describe("McpCapabilitiesPanel", () => {
         capabilities={null}
         isLoading={false}
         serverName="Test Server"
-        serverId="test-server"
       />
     );
     expect(container).toBeInTheDocument();
@@ -56,7 +53,6 @@ describe("McpCapabilitiesPanel", () => {
         capabilities={mockCapabilities}
         isLoading={false}
         serverName="Test Server"
-        serverId="test-server"
       />
     );
     const panel = container.querySelector('.mcp-capabilities-panel');

@@ -202,8 +202,8 @@ N8N_HOST=localhost
 N8N_PORT=5678
 N8N_API_KEY=your-n8n-api-key
 
-# Security
-MCP_ENCRYPTION_KEY=your-32-character-secret-key-here
+# LiteLLM admin API
+LITELLM_ADMIN_TOKEN=sk-local-master
 
 # Frontend
 VITE_API_BASE_URL=http://localhost:8080

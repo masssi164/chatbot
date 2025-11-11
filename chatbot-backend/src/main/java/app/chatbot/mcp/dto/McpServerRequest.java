@@ -1,16 +1,21 @@
 package app.chatbot.mcp.dto;
 
-import app.chatbot.mcp.McpServerStatus;
+import java.util.List;
+import java.util.Map;
+
 import app.chatbot.mcp.McpTransport;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 
 public record McpServerRequest(
         String serverId,
         @NotBlank String name,
         @NotBlank String baseUrl,
-        String apiKey,
-        McpServerStatus status,
-        McpTransport transport
-) {
-}
-
+        @NotNull McpTransport transport,
+        String authType,
+        String authValue,
+        Map<String, String> staticHeaders,
+        List<String> extraHeaders,
+        List<String> accessGroups,
+        String requireApproval
+) {}

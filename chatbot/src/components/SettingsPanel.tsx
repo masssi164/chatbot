@@ -183,10 +183,9 @@ function SettingsPanel({
               {servers.map((server) => {
                 const isActive = server.id === activeServerId;
                 const isCapabilitiesLoading =
-                  server.syncStatus === "SYNCING" ||
-                  (isActive &&
-                    server.status === "connected" &&
-                    !server.capabilities);
+                  isActive &&
+                  server.status === "connected" &&
+                  !server.capabilities;
                 return (
                   <li
                     key={server.id}
@@ -223,7 +222,6 @@ function SettingsPanel({
                           capabilities={server.capabilities ?? null}
                           isLoading={isCapabilitiesLoading}
                           serverName={server.name}
-                          serverId={server.id}
                         />
                       </div>
                     )}

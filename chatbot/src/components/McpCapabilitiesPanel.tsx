@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import { apiClient, type ToolApprovalPolicyDto } from "../services/apiClient";
+import { useState } from "react";
 import type { McpCapabilities } from "../types/mcp";
 import "./McpCapabilitiesPanel.css";
 
@@ -7,59 +6,16 @@ interface McpCapabilitiesPanelProps {
   capabilities: McpCapabilities | null;
   isLoading: boolean;
   serverName: string;
-  serverId: string;
 }
 
 export function McpCapabilitiesPanel({
   capabilities,
   isLoading,
   serverName,
-  serverId,
 }: McpCapabilitiesPanelProps) {
   const [expandedSection, setExpandedSection] = useState<
     "tools" | "resources" | "prompts" | null
   >(null);
-  const [approvalPolicies, setApprovalPolicies] = useState<Map<string, "always" | "never">>(new Map());
-  const [loadingPolicies, setLoadingPolicies] = useState(false);
-
-  // Load approval policies for tools
-  useEffect(() => {
-    if (!capabilities || capabilities.tools.length === 0) {
-      return;
-    }
-
-    setLoadingPolicies(true);
-    apiClient
-      .getToolApprovalPolicies(serverId)
-      .then((policies) => {
-        const policyMap = new Map<string, "always" | "never">();
-        policies.forEach((p: ToolApprovalPolicyDto) => {
-          policyMap.set(p.toolName, p.policy);
-        });
-        setApprovalPolicies(policyMap);
-      })
-      .catch((err) => {
-        console.error("Failed to load approval policies:", err);
-      })
-      .finally(() => {
-        setLoadingPolicies(false);
-      });
-  }, [serverId, capabilities]);
-
-  const handleApprovalToggle = async (toolName: string, requiresApproval: boolean) => {
-    const policy = requiresApproval ? "always" : "never";
-    
-    try {
-      await apiClient.setToolApprovalPolicy(serverId, toolName, policy);
-      setApprovalPolicies((prev) => {
-        const updated = new Map(prev);
-        updated.set(toolName, policy);
-        return updated;
-      });
-    } catch (err) {
-      console.error(`Failed to update approval policy for ${toolName}:`, err);
-    }
-  };
 
   if (isLoading) {
     return (
@@ -118,31 +74,18 @@ export function McpCapabilitiesPanel({
 
           {expandedSection === "tools" && hasTools && (
             <div className="mcp-section-content">
-              {capabilities.tools.map((tool) => {
-                const requiresApproval = approvalPolicies.get(tool.name) === "always";
-                
-                return (
-                  <div key={tool.name} className="mcp-item">
-                    <div className="mcp-item-header">
-                      <div className="mcp-item-name">{tool.name}</div>
-                      <label className="mcp-approval-checkbox">
-                        <input
-                          type="checkbox"
-                          checked={requiresApproval}
-                          onChange={(e) => handleApprovalToggle(tool.name, e.target.checked)}
-                          disabled={loadingPolicies}
-                        />
-                        <span>Erfordert Bestätigung</span>
-                      </label>
-                    </div>
-                    {tool.description && (
-                      <div className="mcp-item-description">
-                        {tool.description}
-                      </div>
-                    )}
+              {capabilities.tools.map((tool) => (
+                <div key={tool.name} className="mcp-item">
+                  <div className="mcp-item-header">
+                    <div className="mcp-item-name">{tool.name}</div>
                   </div>
-                );
-              })}
+                  {tool.description && (
+                    <div className="mcp-item-description">
+                      {tool.description}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </div>

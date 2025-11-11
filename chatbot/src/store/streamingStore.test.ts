@@ -12,7 +12,6 @@ vi.mock("@microsoft/fetch-event-source");
 vi.mock("../services/apiClient", () => ({
   apiClient: {
     addMessage: vi.fn(),
-    setToolApprovalPolicy: vi.fn(),
   },
 }));
 
@@ -273,19 +272,12 @@ describe("streamingStore", () => {
         },
       });
 
-      vi.mocked(apiClient.setToolApprovalPolicy).mockResolvedValue({
-        serverId: "test-server",
-        toolName: "test-tool",
-        policy: "always",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
     });
 
     it("should do nothing if no pending approval", async () => {
       useToolCallStore.setState({ pendingApprovalRequest: null });
 
-      await useStreamingStore.getState().sendApprovalResponse(true, false);
+      await useStreamingStore.getState().sendApprovalResponse(true);
 
       expect(vi.mocked(fetchEventSource)).not.toHaveBeenCalled();
     });
@@ -293,77 +285,30 @@ describe("streamingStore", () => {
     it("should do nothing if no conversation ID", async () => {
       useConversationStore.setState({ conversationId: null });
 
-      await useStreamingStore.getState().sendApprovalResponse(true, false);
+      await useStreamingStore.getState().sendApprovalResponse(true);
 
       expect(vi.mocked(fetchEventSource)).not.toHaveBeenCalled();
     });
 
-    it("should send approval without remembering", async () => {
+    it("should send approval", async () => {
       vi.mocked(fetchEventSource).mockImplementation(async (_url, options: any) => {
         await options.onopen({ ok: true, status: 200 });
         options.onclose?.();
       });
 
-      await useStreamingStore.getState().sendApprovalResponse(true, false);
+      await useStreamingStore.getState().sendApprovalResponse(true);
 
-      expect(apiClient.setToolApprovalPolicy).not.toHaveBeenCalled();
       expect(vi.mocked(fetchEventSource)).toHaveBeenCalled();
       expect(useToolCallStore.getState().pendingApprovalRequest).toBeNull();
-    });
-
-    it("should send approval with remember policy (always)", async () => {
-      vi.mocked(fetchEventSource).mockImplementation(async (_url, options: any) => {
-        await options.onopen({ ok: true, status: 200 });
-        options.onclose?.();
-      });
-
-      await useStreamingStore.getState().sendApprovalResponse(true, true);
-
-      expect(apiClient.setToolApprovalPolicy).toHaveBeenCalledWith(
-        "test-server",
-        "test-tool",
-        "always"
-      );
-    });
-
-    it("should send denial with remember policy (never)", async () => {
-      vi.mocked(fetchEventSource).mockImplementation(async (_url, options: any) => {
-        await options.onopen({ ok: true, status: 200 });
-        options.onclose?.();
-      });
-
-      await useStreamingStore.getState().sendApprovalResponse(false, true);
-
-      expect(apiClient.setToolApprovalPolicy).toHaveBeenCalledWith(
-        "test-server",
-        "test-tool",
-        "never"
-      );
     });
 
     it("should handle approval stream errors", async () => {
       vi.mocked(fetchEventSource).mockRejectedValue(new Error("Network error"));
 
-      await useStreamingStore.getState().sendApprovalResponse(true, false);
+      await useStreamingStore.getState().sendApprovalResponse(true);
 
       expect(useStreamingStore.getState().isStreaming).toBe(false);
       expect(useStreamingStore.getState().streamError).toBeDefined();
-    });
-
-    it("should handle policy update errors gracefully", async () => {
-      vi.mocked(apiClient.setToolApprovalPolicy).mockRejectedValue(
-        new Error("Policy update failed")
-      );
-
-      vi.mocked(fetchEventSource).mockImplementation(async (_url, options: any) => {
-        await options.onopen({ ok: true, status: 200 });
-        options.onclose?.();
-      });
-
-      // Should not throw
-      await expect(
-        useStreamingStore.getState().sendApprovalResponse(true, true)
-      ).resolves.not.toThrow();
     });
   });
 

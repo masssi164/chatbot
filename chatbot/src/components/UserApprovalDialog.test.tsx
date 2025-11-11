@@ -84,7 +84,7 @@ describe("UserApprovalDialog", () => {
     expect(screen.queryByText(/Argumente:/)).not.toBeInTheDocument();
   });
 
-  it("should call onApprove without remember", async () => {
+  it("should call onApprove", async () => {
     const onApprove = vi.fn();
     const onDeny = vi.fn();
     const user = userEvent.setup();
@@ -100,11 +100,11 @@ describe("UserApprovalDialog", () => {
     const approveButton = screen.getByRole("button", { name: /Genehmigen/ });
     await user.click(approveButton);
 
-    expect(onApprove).toHaveBeenCalledWith(false);
+    expect(onApprove).toHaveBeenCalledTimes(1);
     expect(onDeny).not.toHaveBeenCalled();
   });
 
-  it("should call onDeny without remember", async () => {
+  it("should call onDeny", async () => {
     const onApprove = vi.fn();
     const onDeny = vi.fn();
     const user = userEvent.setup();
@@ -120,75 +120,8 @@ describe("UserApprovalDialog", () => {
     const denyButton = screen.getByRole("button", { name: /Ablehnen/ });
     await user.click(denyButton);
 
-    expect(onDeny).toHaveBeenCalledWith(false);
+    expect(onDeny).toHaveBeenCalledTimes(1);
     expect(onApprove).not.toHaveBeenCalled();
-  });
-
-  it("should call onApprove with remember when checkbox is checked", async () => {
-    const onApprove = vi.fn();
-    const onDeny = vi.fn();
-    const user = userEvent.setup();
-
-    render(
-      <UserApprovalDialog
-        request={mockRequest}
-        onApprove={onApprove}
-        onDeny={onDeny}
-      />
-    );
-
-    const checkbox = screen.getByRole("checkbox");
-    await user.click(checkbox);
-
-    const approveButton = screen.getByRole("button", { name: /Genehmigen/ });
-    await user.click(approveButton);
-
-    expect(onApprove).toHaveBeenCalledWith(true);
-  });
-
-  it("should call onDeny with remember when checkbox is checked", async () => {
-    const onApprove = vi.fn();
-    const onDeny = vi.fn();
-    const user = userEvent.setup();
-
-    render(
-      <UserApprovalDialog
-        request={mockRequest}
-        onApprove={onApprove}
-        onDeny={onDeny}
-      />
-    );
-
-    const checkbox = screen.getByRole("checkbox");
-    await user.click(checkbox);
-
-    const denyButton = screen.getByRole("button", { name: /Ablehnen/ });
-    await user.click(denyButton);
-
-    expect(onDeny).toHaveBeenCalledWith(true);
-  });
-
-  it("should toggle remember checkbox", async () => {
-    const onApprove = vi.fn();
-    const onDeny = vi.fn();
-    const user = userEvent.setup();
-
-    render(
-      <UserApprovalDialog
-        request={mockRequest}
-        onApprove={onApprove}
-        onDeny={onDeny}
-      />
-    );
-
-    const checkbox = screen.getByRole("checkbox") as HTMLInputElement;
-    expect(checkbox.checked).toBe(false);
-
-    await user.click(checkbox);
-    expect(checkbox.checked).toBe(true);
-
-    await user.click(checkbox);
-    expect(checkbox.checked).toBe(false);
   });
 
   it("should display approval icon", () => {
