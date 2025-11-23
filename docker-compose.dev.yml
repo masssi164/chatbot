@@ -6,7 +6,8 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: dev
       # OpenAI/LiteLLM Configuration for dev
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-http://litellm:4000}
+      OPENAI_RESPONSES_BASE_URL: ${OPENAI_RESPONSES_BASE_URL:-http://litellm:4000/v1}
+      LITELLM_API_BASE_URL: ${LITELLM_API_BASE_URL:-http://litellm:4000}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-sk-local-master}
       # No DB_* variables needed - uses H2 in-memory in dev profile
       JAVA_OPTS: "-Xmx512m -Xms256m -Dspring.profiles.active=dev"

@@ -4,6 +4,12 @@
 
 This document describes the communication patterns between the React frontend and Spring Boot backend, including REST API, Server-Sent Events (SSE), and state synchronization.
 
+### Runtime base URLs
+- Responses API: `OPENAI_RESPONSES_BASE_URL` (must include `/v1`, defaults to `http://litellm:4000/v1` inside Docker).
+- LiteLLM admin/MCP API: `LITELLM_API_BASE_URL` (root host, defaults to `http://litellm:4000`).
+- Frontend ↔ Backend: `VITE_API_BASE_URL` → `http://localhost:8080` (host) mapped to `chatbot-backend` container.
+- Gradle `composeUp` wires these through `.env` so each container addresses the others by service name.
+
 ## Communication Architecture
 
 ```plantuml
@@ -114,7 +120,7 @@ DELETE /api/conversations/{id}
 
 #### List MCP Servers
 ```
-GET /api/mcp/servers
+GET /api/mcp-servers
 ```
 
 **Response**:
@@ -134,7 +140,7 @@ GET /api/mcp/servers
 
 #### Create/Update MCP Server
 ```
-POST /api/mcp/servers
+POST /api/mcp-servers
 Content-Type: application/json
 
 {
@@ -198,6 +204,11 @@ data: {"status": "CONNECTED"}
 event: error
 data: {"error": "Connection timeout"}
 ```
+
+## End-to-end verification
+- Compose bootstrap: `./gradlew composeUp` (uses `.env` to set the base URLs above).
+- UI + streaming check: Cucumber/Selenium feature at `chatbot-backend/src/test/resources/features/end_to_end.feature` exercised by `./gradlew :chatbot-backend:test --tests app.chatbot.e2e.CucumberE2ETest`.
+- MCP registration check: same feature posts to `/api/mcp-servers` and asserts LiteLLM catalogs the server.
 
 ### Streaming Chat
 

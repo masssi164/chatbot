@@ -220,6 +220,7 @@ function App() {
               await mcpActions.registerServer({
                 ...server,
                 transport: server.transport || "STREAMABLE_HTTP",
+                requireApproval: server.requireApproval ?? "never",
               });
             }}
             onRemoveServer={mcpActions.removeServer}

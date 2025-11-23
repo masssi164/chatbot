@@ -120,6 +120,7 @@ describe("mcpServerStore", () => {
         name: "New Server",
         baseUrl: "http://localhost:5678",
         transport: "SSE",
+        requireApproval: "never",
       });
 
       expect(serverId).toBe("new-server");
@@ -139,6 +140,7 @@ describe("mcpServerStore", () => {
           name: "New Server",
           baseUrl: "http://localhost:5678",
           transport: "SSE",
+          requireApproval: "never",
         })
       ).rejects.toThrow("Server error");
 

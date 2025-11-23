@@ -50,7 +50,7 @@ class LiteLlmMcpServiceTest {
                 .serverName("n8n Dev")
                 .url("http://n8n:5678")
                 .transport(TransportEnum.SSE)
-                .status(StatusEnum.CONNECTED)
+                .status(StatusEnum.HEALTHY)
                 .createdAt(OffsetDateTime.ofInstant(Instant.parse("2024-01-01T00:00:00Z"), ZoneOffset.UTC))
                 .updatedAt(OffsetDateTime.ofInstant(Instant.parse("2024-01-02T00:00:00Z"), ZoneOffset.UTC))
                 .extraHeaders(List.of("x-user-id"))

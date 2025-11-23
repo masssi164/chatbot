@@ -78,7 +78,8 @@ services:
       DB_USER: ${DB_USER:-chatbot_user}
       DB_PASSWORD: ${DB_PASSWORD:-chatbot_password}
       # OpenAI configuration
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_RESPONSES_BASE_URL: ${OPENAI_RESPONSES_BASE_URL:-https://api.openai.com/v1}
+      LITELLM_API_BASE_URL: ${LITELLM_API_BASE_URL:-http://litellm:4000}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       # LiteLLM admin API
       LITELLM_ADMIN_TOKEN: ${LITELLM_ADMIN_TOKEN:-sk-local-master}

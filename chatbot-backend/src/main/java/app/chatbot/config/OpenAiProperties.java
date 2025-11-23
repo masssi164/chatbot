@@ -7,7 +7,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "openai")
 public class OpenAiProperties {
 
-    private String baseUrl = "http://localhost:1234/v1";
+    private String baseUrl = "http://localhost:4000/v1";
 
     private Duration connectTimeout = Duration.ofSeconds(10);
 
@@ -20,7 +20,11 @@ public class OpenAiProperties {
     }
 
     public void setBaseUrl(String baseUrl) {
-        this.baseUrl = baseUrl;
+        if (baseUrl == null) {
+            this.baseUrl = null;
+            return;
+        }
+        this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
     }
 
     public Duration getConnectTimeout() {

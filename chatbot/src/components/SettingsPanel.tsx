@@ -31,6 +31,7 @@ interface SettingsPanelProps {
     baseUrl: string;
     apiKey?: string;
     transport: McpTransportType;
+    requireApproval?: "never" | "always";
   }) => Promise<void> | void;
   onRemoveServer: (serverId: string) => Promise<void> | void;
 }
