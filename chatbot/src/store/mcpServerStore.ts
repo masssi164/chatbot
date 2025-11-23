@@ -42,13 +42,6 @@ interface McpServerState {
   removeServer: (serverId: string) => Promise<void>;
 }
 
-function safeId() {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return Math.random().toString(36).slice(2);
-}
-
 function normalizeStatus(status?: string): McpServerStatus {
   switch ((status ?? "connected").toLowerCase()) {
     case "connecting":
@@ -106,10 +99,8 @@ export const useMcpServerStore = create<McpServerState>((set, get) => ({
   },
 
   registerServer: async (server) => {
-    const serverId = server.id ?? safeId();
     const trimmedKey = server.apiKey?.trim() ?? "";
     const payload: McpServerRequest = {
-      serverId,
       name: server.name.trim(),
       baseUrl: server.baseUrl.trim(),
       transport: server.transport,

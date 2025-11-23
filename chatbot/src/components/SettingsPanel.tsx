@@ -57,6 +57,7 @@ function SettingsPanel({
   const [apiKey, setApiKey] = useState("");
   const [transport, setTransport] = useState<McpTransportType>("STREAMABLE_HTTP");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [connectorError, setConnectorError] = useState<string | null>(null);
 
   const resetConnectorForm = () => {
     setName("");
@@ -68,6 +69,7 @@ function SettingsPanel({
   const handleAddConnector = async () => {
     const trimmedUrl = baseUrl.trim();
     if (!trimmedUrl) {
+      setConnectorError("Bitte eine gültige MCP-Server-URL angeben.");
       return;
     }
     setIsSubmitting(true);
@@ -78,7 +80,14 @@ function SettingsPanel({
         apiKey: apiKey.trim() || undefined,
         transport,
       });
+      setConnectorError(null);
       resetConnectorForm();
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Konnektor konnte nicht hinzugefügt werden.";
+      setConnectorError(message);
     } finally {
       setIsSubmitting(false);
     }
@@ -163,6 +172,16 @@ function SettingsPanel({
         </div>
       ) : (
         <div className="settings-content settings-connectors">
+          {connectorError && (
+            <div
+              role="alert"
+              aria-live="assertive"
+              className="error-message"
+              style={{ marginBottom: "1rem" }}
+            >
+              {connectorError}
+            </div>
+          )}
           <header className="connectors-header">
             <div>
               <h3>Konnektoren (MCP)</h3>

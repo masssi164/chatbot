@@ -51,13 +51,13 @@ public class LiteLlmMcpService {
     }
 
     public Mono<McpServerDto> upsertServer(McpServerRequest request) {
-        String serverId = determineServerId(request);
-        if (StringUtils.hasText(request.serverId())) {
+        String serverId = normalizedServerId(request);
+        if (serverId != null) {
             UpdateMCPServerRequest payload = toUpdateRequest(serverId, request);
             return mcpApi.editMcpServerV1McpServerPut(payload, null)
                     .map(this::mapServer);
         }
-        NewMCPServerRequest payload = toNewRequest(serverId, request);
+        NewMCPServerRequest payload = toNewRequest(request);
         return mcpApi.addMcpServerV1McpServerPost(payload, null)
                 .map(this::mapServer);
     }
@@ -73,12 +73,11 @@ public class LiteLlmMcpService {
                 .map(node -> mapCapabilities(node, serverId));
     }
 
-    private NewMCPServerRequest toNewRequest(String serverId, McpServerRequest request) {
+    private NewMCPServerRequest toNewRequest(McpServerRequest request) {
         NewMCPServerRequest.TransportEnum transport = mapTransport(request.transport());
         NewMCPServerRequest.AuthTypeEnum authType = mapAuthType(request.authType());
 
-        return new NewMCPServerRequest()
-                .serverId(serverId)
+        NewMCPServerRequest payload = new NewMCPServerRequest()
                 .serverName(request.name())
                 .alias(request.name())
                 .description(request.name())
@@ -87,6 +86,10 @@ public class LiteLlmMcpService {
                 .url(request.baseUrl())
                 .extraHeaders(request.extraHeaders())
                 .mcpAccessGroups(request.accessGroups());
+        if (StringUtils.hasText(request.serverId())) {
+            payload.serverId(request.serverId().trim());
+        }
+        return payload;
     }
 
     private UpdateMCPServerRequest toUpdateRequest(String serverId, McpServerRequest request) {
@@ -222,14 +225,11 @@ public class LiteLlmMcpService {
         return fallback;
     }
 
-    private String determineServerId(McpServerRequest request) {
+    private String normalizedServerId(McpServerRequest request) {
         if (StringUtils.hasText(request.serverId())) {
             return request.serverId().trim();
         }
-        if (StringUtils.hasText(request.name())) {
-            return request.name().trim().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9-]", "-");
-        }
-        return "server-" + Instant.now().toEpochMilli();
+        return null;
     }
 
     private NewMCPServerRequest.TransportEnum mapTransport(McpTransport transport) {
