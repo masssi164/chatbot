@@ -172,6 +172,9 @@ services:
       - UI_PASSWORD=${LITELLM_UI_PASSWORD:-admin}
       # Shared master/API key (matches backend OPENAI_API_KEY)
       - OPENAI_API_KEY=${OPENAI_API_KEY:-sk-local-master}
+      # Database for MCP registry and admin features
+      - DATABASE_URL=${LITELLM_DATABASE_URL:-postgresql://litellm:litellm_password@litellm-db:5432/litellm}
+      - STORE_MODEL_IN_DB=${LITELLM_STORE_MODEL_IN_DB:-True}
       # Logging
       - JSON_LOGS=True
       - OLLAMA_API_BASE=http://ollama:11434
@@ -184,6 +187,8 @@ services:
         condition: service_healthy
       ollama-seeder:
         condition: service_completed_successfully
+      litellm-db:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c",
              "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness').getcode()==200 else sys.exit(1)"]
@@ -192,8 +197,25 @@ services:
       retries: 10
       start_period: 60s
 
+  # PostgreSQL for LiteLLM MCP/admin storage
+  litellm-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${LITELLM_DB_NAME:-litellm}
+      POSTGRES_USER: ${LITELLM_DB_USER:-litellm}
+      POSTGRES_PASSWORD: ${LITELLM_DB_PASSWORD:-litellm_password}
+    volumes:
+      - litellm_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${LITELLM_DB_USER:-litellm} -d ${LITELLM_DB_NAME:-litellm} > /dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
 volumes:
   n8n_data:
   postgres_n8n_data:
   postgres_chatbot_data:
+  litellm_db_data:
   ollama_models:

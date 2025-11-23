@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -54,12 +55,14 @@ public class LiteLlmMcpService {
         String serverId = normalizedServerId(request);
         if (serverId != null) {
             UpdateMCPServerRequest payload = toUpdateRequest(serverId, request);
-            return mcpApi.editMcpServerV1McpServerPut(payload, null)
-                    .map(this::mapServer);
+        return mcpApi.editMcpServerV1McpServerPut(payload, null)
+                .map(this::mapServer)
+                .onErrorMap(WebClientResponseException.class, this::toClientFacingException);
         }
         NewMCPServerRequest payload = toNewRequest(request);
         return mcpApi.addMcpServerV1McpServerPost(payload, null)
-                .map(this::mapServer);
+                .map(this::mapServer)
+                .onErrorMap(WebClientResponseException.class, this::toClientFacingException);
     }
 
     public Mono<Void> deleteServer(String serverId) {
@@ -85,7 +88,7 @@ public class LiteLlmMcpService {
                 .authType(authType)
                 .url(request.baseUrl())
                 .extraHeaders(request.extraHeaders())
-                .mcpAccessGroups(request.accessGroups());
+                .mcpAccessGroups(request.accessGroups() != null ? request.accessGroups() : List.of());
         if (StringUtils.hasText(request.serverId())) {
             payload.serverId(request.serverId().trim());
         }
@@ -107,7 +110,7 @@ public class LiteLlmMcpService {
         payload.transport(UpdateMCPServerRequest.TransportEnum.fromValue(newTransport.getValue()));
         payload.authType(authType);
         payload.url(request.baseUrl());
-        payload.mcpAccessGroups(request.accessGroups());
+        payload.mcpAccessGroups(request.accessGroups() != null ? request.accessGroups() : List.of());
         return payload;
     }
 
@@ -252,5 +255,30 @@ public class LiteLlmMcpService {
             log.debug("Unknown auth type received from request: {}", authType, ex);
             return null;
         }
+    }
+
+    private RuntimeException toClientFacingException(WebClientResponseException ex) {
+        String message = extractErrorMessage(ex);
+        return new org.springframework.web.server.ResponseStatusException(ex.getStatusCode(), message, ex);
+    }
+
+    private String extractErrorMessage(WebClientResponseException ex) {
+        String body = ex.getResponseBodyAsString();
+        if (StringUtils.hasText(body)) {
+            try {
+                JsonNode node = objectMapper.readTree(body);
+                if (node.has("detail")) {
+                    return node.get("detail").toString();
+                }
+                if (node.has("message")) {
+                    return node.get("message").asText();
+                }
+                return node.toString();
+            } catch (Exception ignored) {
+                // fall through to raw body
+            }
+            return body;
+        }
+        return ex.getMessage();
     }
 }
