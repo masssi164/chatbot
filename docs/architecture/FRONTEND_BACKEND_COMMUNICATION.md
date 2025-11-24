@@ -118,92 +118,60 @@ DELETE /api/conversations/{id}
 
 ### MCP Server Management
 
-#### List MCP Servers
-```
-GET /api/mcp-servers
+#### Connector hinzufügen (mit Verbindungstest und Healthcheck)
+
+```plantuml
+@startuml
+actor User
+participant Frontend
+participant "Backend /api/mcp-servers" as API
+participant "LiteLLM MCP API" as LLM
+
+User -> Frontend : Name, Base URL, Transport
+Frontend -> API : POST /api/mcp-servers
+API -> LLM : POST /mcp-rest/test/connection\n(NewMCPServerRequest)
+LLM --> API : 200 OK oder Fehler
+API -> LLM : POST /v1/mcp/server (create) \noder PUT /v1/mcp/server (update)
+LLM --> API : server_id
+API -> LLM : GET /v1/mcp/server/{id}/health
+LLM --> API : 200 OK (Status aktualisiert)
+API -> LLM : GET /v1/mcp/server/{id}
+LLM --> API : LiteLLM_MCPServerTable (inkl. Status)
+API --> Frontend : McpServerDto (Status/ID/URLs)
+Frontend --> User : Erfolg oder Fehler (LiteLLM-Fehltexte werden angezeigt)
+@enduml
 ```
 
-**Response**:
+**Base-URL beachten:** Im Docker-Netz muss der Hostname des MCP-Servers erreichbar sein (z. B. `http://n8n:5678/...` statt `http://localhost:5678/...`). LiteLLM prüft die Erreichbarkeit während `test/connection`; falsche Hosts werden sofort mit Fehler abgelehnt.
+
+**Create/Update Request**:
 ```json
-[
-  {
-    "id": 1,
-    "serverId": "n8n-server-1",
-    "name": "n8n Workflows",
-    "baseUrl": "http://n8n:5678/mcp/sse",
-    "transport": "SSE",
-    "status": "CONNECTED",
-    "lastUpdated": "2025-11-06T10:00:00Z"
-  }
-]
-```
-
-#### Create/Update MCP Server
-```
 POST /api/mcp-servers
-Content-Type: application/json
-
 {
-  "serverId": "n8n-server-1",
-  "name": "n8n Workflows",
-  "baseUrl": "http://n8n:5678/mcp/sse",
-  "apiKey": "secret-key",
-  "transport": "SSE"
+  "name": "n8n",
+  "baseUrl": "http://n8n:5678/mcp/<workflow-id>",
+  "transport": "sse",
+  "requireApproval": "never"
 }
 ```
 
-#### Get Server Capabilities
+**Tools laden** (Backend ruft LiteLLM `/mcp-rest/tools/list?server_id=...`):
 ```
 GET /api/mcp/servers/{serverId}/capabilities
 ```
+Fehler von LiteLLM (z. B. keine Verbindung) werden an die UI weitergereicht.
 
-**Response**:
-```json
-{
-  "tools": [
-    {
-      "name": "get_weather",
-      "description": "Fetches weather data",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "location": { "type": "string" }
-        },
-        "required": ["location"]
-      }
-    }
-  ],
-  "resources": [],
-  "prompts": [],
-  "serverInfo": {
-    "name": "n8n MCP Server",
-    "version": "1.0"
-  }
-}
+**Health manuell prüfen**:
+```
+GET http://litellm:4000/v1/mcp/server/{serverId}/health
+Authorization: Bearer <LITELLM_ADMIN_TOKEN>
 ```
 
-#### Sync Server Capabilities
+**Kurzformel (LaTeX) für eine erreichbare URL im Docker-Netz**:
+```latex
+\text{reachable\_url} = \text{scheme}://\text{service-name}:\text{port}/\text{path}
 ```
-POST /api/mcp/servers/{serverId}/sync
-```
-
-#### MCP Server Status Stream (SSE)
-```
-GET /api/mcp/servers/{serverId}/status/stream
-Accept: text/event-stream
-```
-
-**Events**:
-```
-event: status
-data: {"status": "CONNECTING"}
-
-event: status
-data: {"status": "CONNECTED"}
-
-event: error
-data: {"error": "Connection timeout"}
-```
+Beispiel: `http://n8n:5678/mcp/<id>`
 
 ## End-to-end verification
 - Compose bootstrap: `./gradlew composeUp` (uses `.env` to set the base URLs above).

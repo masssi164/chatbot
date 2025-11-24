@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import org.springframework.web.server.ResponseStatusException;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -53,16 +54,27 @@ public class LiteLlmMcpService {
 
     public Mono<McpServerDto> upsertServer(McpServerRequest request) {
         String serverId = normalizedServerId(request);
+        // Always validate connectivity before persisting
+        NewMCPServerRequest connectionPayload = toNewRequest(request);
+
+        Mono<Void> connectionCheck = mcpApi.testConnectionMcpRestTestConnectionPost(connectionPayload)
+                .then()
+                .onErrorMap(WebClientResponseException.class, this::toClientFacingException);
+
         if (serverId != null) {
             UpdateMCPServerRequest payload = toUpdateRequest(serverId, request);
-        return mcpApi.editMcpServerV1McpServerPut(payload, null)
-                .map(this::mapServer)
-                .onErrorMap(WebClientResponseException.class, this::toClientFacingException);
+            return connectionCheck.then(
+                    mcpApi.editMcpServerV1McpServerPut(payload, null)
+                            .then(refreshAndFetch(serverId))
+                            .onErrorMap(WebClientResponseException.class, this::toClientFacingException)
+            );
         }
         NewMCPServerRequest payload = toNewRequest(request);
-        return mcpApi.addMcpServerV1McpServerPost(payload, null)
-                .map(this::mapServer)
-                .onErrorMap(WebClientResponseException.class, this::toClientFacingException);
+        return connectionCheck.then(
+                mcpApi.addMcpServerV1McpServerPost(payload, null)
+                        .flatMap(created -> refreshAndFetch(created.getServerId()))
+                        .onErrorMap(WebClientResponseException.class, this::toClientFacingException)
+        );
     }
 
     public Mono<Void> deleteServer(String serverId) {
@@ -74,6 +86,14 @@ public class LiteLlmMcpService {
                 .map(payload -> objectMapper.valueToTree(payload))
                 .map(JsonNode.class::cast)
                 .map(node -> mapCapabilities(node, serverId));
+    }
+
+    private Mono<McpServerDto> refreshAndFetch(String serverId) {
+        return mcpApi.healthCheckMcpServerV1McpServerServerIdHealthGet(serverId)
+                .onErrorMap(WebClientResponseException.class, this::toClientFacingException)
+                .then(mcpApi.fetchMcpServerV1McpServerServerIdGetWithResponseSpec(serverId)
+                        .bodyToMono(JsonNode.class)
+                        .map(this::mapServerNode));
     }
 
     private NewMCPServerRequest toNewRequest(McpServerRequest request) {
@@ -259,7 +279,7 @@ public class LiteLlmMcpService {
 
     private RuntimeException toClientFacingException(WebClientResponseException ex) {
         String message = extractErrorMessage(ex);
-        return new org.springframework.web.server.ResponseStatusException(ex.getStatusCode(), message, ex);
+        return new ResponseStatusException(ex.getStatusCode(), message, ex);
     }
 
     private String extractErrorMessage(WebClientResponseException ex) {
@@ -280,5 +300,68 @@ public class LiteLlmMcpService {
             return body;
         }
         return ex.getMessage();
+    }
+
+    private McpServerDto mapServerNode(JsonNode node) {
+        String serverId = text(node, "server_id");
+        String name = coalesce(text(node, "server_name"), text(node, "alias"), serverId);
+        String baseUrl = text(node, "url");
+        McpTransport transport = McpTransport.fromString(text(node, "transport"));
+        McpServerStatus status = McpServerStatus.fromString(text(node, "status"));
+        Instant createdAt = parseInstant(text(node, "created_at"));
+        Instant updatedAt = parseInstant(text(node, "updated_at"));
+        if (updatedAt == null) {
+            updatedAt = createdAt != null ? createdAt : Instant.now();
+        }
+        if (createdAt == null) {
+            createdAt = updatedAt;
+        }
+        List<String> extraHeaders = listStrings(node.path("extra_headers"));
+        List<String> accessGroups = listStrings(node.path("mcp_access_groups"));
+        return new McpServerDto(
+                serverId,
+                name,
+                baseUrl,
+                transport,
+                status,
+                createdAt,
+                updatedAt,
+                "never",
+                extraHeaders,
+                accessGroups
+        );
+    }
+
+    private String text(JsonNode node, String field) {
+        JsonNode value = node.path(field);
+        return value.isMissingNode() || value.isNull() ? null : value.asText();
+    }
+
+    private Instant parseInstant(String raw) {
+        if (!StringUtils.hasText(raw)) {
+            return null;
+        }
+        try {
+            return OffsetDateTime.parse(raw).toInstant();
+        } catch (Exception ex) {
+            try {
+                return java.time.LocalDateTime.parse(raw).toInstant(java.time.ZoneOffset.UTC);
+            } catch (Exception ignored) {
+                return null;
+            }
+        }
+    }
+
+    private List<String> listStrings(JsonNode arrayNode) {
+        if (arrayNode == null || !arrayNode.isArray()) {
+            return List.of();
+        }
+        List<String> result = new java.util.ArrayList<>();
+        arrayNode.forEach(item -> {
+            if (item != null && !item.isNull()) {
+                result.add(item.asText());
+            }
+        });
+        return result;
     }
 }
