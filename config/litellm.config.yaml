@@ -21,6 +21,14 @@ model_list:
       api_base: http://ollama:11434
       keep_alive: "8m"
 
+  # Bedrock-hosted Claude 3.5 Sonnet (v1) via AWS
+  - model_name: "claude-3.5-sonnet"
+    litellm_params:
+      model: "bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0"
+      aws_access_key_id: ${AWS_ACCESS_KEY_ID}
+      aws_secret_access_key: ${AWS_SECRET_ACCESS_KEY}
+      aws_region_name: ${AWS_REGION}
+
 # LiteLLM settings
 litellm_settings:
   drop_params: True          # Drop unsupported OpenAI params

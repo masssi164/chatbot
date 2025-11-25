@@ -161,6 +161,12 @@ GET /api/mcp/servers/{serverId}/capabilities
 ```
 Fehler von LiteLLM (z. B. keine Verbindung) werden an die UI weitergereicht.
 
+**Tools an Responses API durchreichen (keine Function-Mapping-Ebene)**  
+Der Backend-Stream baut die `tools`-Liste für `/v1/responses` wie folgt:
+- Ein MCP-Server-Block (`type:"mcp"`, `server_name`, `server_label`, `server_url`, `transport`, `require_approval`).
+- Für jeden MCP-Tool-Eintrag von LiteLLM (`/mcp-rest/tools/list`) ein weiterer Block `type:"mcp"` inkl. `tool_name`, `description`, `input_schema`, `mcp_info` sowie der zugehörigen Server-Infos.  
+`tool_choice` wird automatisch auf `auto` gesetzt, sodass das Modell die MCP-Tools ohne Function-Mapping direkt nutzen kann.
+
 **Health manuell prüfen**:
 ```
 GET http://litellm:4000/v1/mcp/server/{serverId}/health

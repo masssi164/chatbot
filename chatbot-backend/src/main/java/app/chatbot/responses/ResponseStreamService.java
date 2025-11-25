@@ -76,6 +76,7 @@ public class ResponseStreamService {
 
         ObjectNode mutablePayload = ((ObjectNode) payload).deepCopy();
         enforceStreamingFlag(mutablePayload);
+        normalizeInput(mutablePayload);
 
         Mono<List<JsonNode>> toolsMono = toolDefinitionProvider.listTools().collectList();
 
@@ -85,7 +86,7 @@ public class ResponseStreamService {
         return Mono.zip(conversationMono, toolsMono)
                 .flatMapMany(tuple -> {
                     Conversation conversation = tuple.getT1();
-                    List<JsonNode> tools = tuple.getT2();
+                    List<JsonNode> tools = filterToolsForModel(mutablePayload.path("model").asText(null), tuple.getT2());
                     mergeTools(mutablePayload, tools);
                     
                     // Debug: Log the complete request payload to OpenAI
@@ -244,6 +245,41 @@ public class ResponseStreamService {
         payload.put("stream", true);
     }
 
+    /**
+     * Normalize user input into Responses API format:
+     * - If input is a plain string, wrap it as a user message with an input_text part.
+     * - Leave well-formed arrays unchanged.
+     */
+    private void normalizeInput(ObjectNode payload) {
+        JsonNode inputNode = payload.get("input");
+        if (inputNode == null) {
+            return;
+        }
+
+        if (inputNode.isTextual()) {
+            payload.set("input", toUserInputArray(inputNode.asText()));
+            return;
+        }
+
+        if (!inputNode.isArray()) {
+            payload.set("input", toUserInputArray(inputNode.toString()));
+        }
+    }
+
+    private ArrayNode toUserInputArray(String text) {
+        ObjectNode msg = objectMapper.createObjectNode();
+        msg.put("role", "user");
+        ArrayNode content = objectMapper.createArrayNode();
+        ObjectNode part = objectMapper.createObjectNode();
+        part.put("type", "input_text");
+        part.put("text", text);
+        content.add(part);
+        msg.set("content", content);
+        ArrayNode arr = objectMapper.createArrayNode();
+        arr.add(msg);
+        return arr;
+    }
+
     private void mergeTools(ObjectNode payload, List<JsonNode> additionalTools) {
         if (additionalTools == null || additionalTools.isEmpty()) {
             return;
@@ -260,6 +296,43 @@ public class ResponseStreamService {
             if (toolNode != null && !toolNode.isNull()) {
                 toolsArray.add(toolNode);
             }
+        }
+        log.debug("Merging {} tools into payload (model={})", additionalTools.size(), payload.path("model").asText(null));
+        ensureToolChoiceAuto(payload, toolsArray);
+    }
+
+    private List<JsonNode> filterToolsForModel(String model, List<JsonNode> tools) {
+        if (tools == null || tools.isEmpty()) {
+            return List.of();
+        }
+        List<JsonNode> filtered = tools.stream()
+                .filter(node -> node != null
+                        && node.hasNonNull("tool_name")
+                        && StringUtils.hasText(node.path("tool_name").asText())
+                        && node.hasNonNull("description")
+                        && StringUtils.hasText(node.path("description").asText()))
+                .toList();
+        int dropped = tools.size() - filtered.size();
+        if (dropped > 0) {
+            log.debug("Dropped {} MCP block(s) without tool_name/description (model={})", dropped, model);
+        }
+        return filtered;
+    }
+
+    private boolean isBedrockModel(String model) {
+        if (!StringUtils.hasText(model)) {
+            return false;
+        }
+        String lower = model.toLowerCase();
+        return lower.contains("bedrock") || lower.startsWith("claude-");
+    }
+
+    private void ensureToolChoiceAuto(ObjectNode payload, ArrayNode toolsArray) {
+        if (toolsArray == null || toolsArray.isEmpty()) {
+            return;
+        }
+        if (!payload.has("tool_choice") || payload.get("tool_choice").isNull()) {
+            payload.put("tool_choice", "auto");
         }
     }
 

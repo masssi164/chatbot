@@ -88,6 +88,30 @@ public class LiteLlmMcpService {
                 .map(node -> mapCapabilities(node, serverId));
     }
 
+    /**
+     * Lists MCP tools for a server and returns descriptors that can be forwarded
+     * to the Responses API without converting them into OpenAI function calls.
+     */
+    public Flux<McpToolDescriptor> listTools(String serverId) {
+        return mcpApi.listToolRestApiMcpRestToolsListGet(serverId)
+                .map(payload -> objectMapper.valueToTree(payload))
+                .map(JsonNode.class::cast)
+                .flatMapMany(node -> {
+                    JsonNode toolsNode = node.path("tools");
+                    if (toolsNode == null || !toolsNode.isArray()) {
+                        return Flux.empty();
+                    }
+                    return Flux.fromStream(streamArray(toolsNode)
+                            .map(toolNode -> new McpToolDescriptor(
+                                    serverId,
+                                    toolNode.path("name").asText(),
+                                    toolNode.path("description").asText(null),
+                                    toolNode.path("inputSchema"),
+                                    toolNode.path("mcp_info").isMissingNode() ? null : toolNode.path("mcp_info")
+                            )));
+                });
+    }
+
     private Mono<McpServerDto> refreshAndFetch(String serverId) {
         return mcpApi.healthCheckMcpServerV1McpServerServerIdHealthGet(serverId)
                 .onErrorMap(WebClientResponseException.class, this::toClientFacingException)
@@ -253,6 +277,15 @@ public class LiteLlmMcpService {
             return request.serverId().trim();
         }
         return null;
+    }
+
+    public record McpToolDescriptor(
+            String serverId,
+            String name,
+            String description,
+            JsonNode inputSchema,
+            JsonNode mcpInfo
+    ) {
     }
 
     private NewMCPServerRequest.TransportEnum mapTransport(McpTransport transport) {
